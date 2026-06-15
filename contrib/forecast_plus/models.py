@@ -935,12 +935,22 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_
             self.test_data_sst = []
             self.test_data_sla = []
         out = self(batch=mask_batch)
-        m, s = self.norm_stats
+
+        # SST denorm stats (always available via norm_stats)
+        m_sst, s_sst = self.norm_stats
+        # SLA denorm stats: use per-var if available, else fall back to SST stats
+        dm = self.trainer.datamodule
+        if hasattr(dm, 'norm_stats_per_var') and dm.normalize_per_var:
+            m_sla, s_sla = dm.norm_stats_per_var()['tgt_sla']
+        else:
+            m_sla, s_sla = m_sst, s_sst
+
         # out: [batch, 58, lat, lon] -> [batch, 2, 29, lat, lon]
-        out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1))
-        out_denorm = out_2var.detach().cpu() * s + m
-        self.test_data_sst.append(out_denorm[:, 0:1])  # [batch, 1, 29, lat, lon]
-        self.test_data_sla.append(out_denorm[:, 1:2])  # [batch, 1, 29, lat, lon]
+        out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1)).detach().cpu()
+        out_sst = out_2var[:, 0:1] * s_sst + m_sst  # [batch, 1, 29, lat, lon]
+        out_sla = out_2var[:, 1:2] * s_sla + m_sla  # [batch, 1, 29, lat, lon]
+        self.test_data_sst.append(out_sst)
+        self.test_data_sla.append(out_sla)
 
     def on_test_epoch_end(self):
         self.clear_gpu_mem()

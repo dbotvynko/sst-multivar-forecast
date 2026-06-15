@@ -470,7 +470,8 @@ class BaseDataModule_SST_SLA_INPUT(pl.LightningDataModule):
     SST + SLA input & SST + SLA output
 '''
 class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
-    def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None, **kwargs):
+    def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None,
+                 normalize_per_var=False, **kwargs):
         super().__init__()
         self.input_da = input_da
         self.domains = domains
@@ -478,17 +479,25 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         self.dl_kw = dl_kw
         self.aug_kw = aug_kw if aug_kw is not None else {}
         self._norm_stats = norm_stats
+        self.normalize_per_var = normalize_per_var
 
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
         self._post_fn = None
+        self._norm_stats_per_var = None
 
     def norm_stats(self):
         if self._norm_stats is None:
             self._norm_stats = self.train_mean_std()
-            print("Norm stats", self._norm_stats)
+            print("Norm stats (SST)", self._norm_stats)
         return self._norm_stats
+
+    def norm_stats_per_var(self):
+        """Return per-variable (mean, std) as a dict keyed by variable name."""
+        if self._norm_stats_per_var is None:
+            self._norm_stats_per_var = self._compute_per_var_stats()
+        return self._norm_stats_per_var
 
     def train_mean_std(self, variable='tgt'):
         print("Train mean std function")
@@ -502,16 +511,40 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         print(train_data.sel(variable = 'input_sla').mean(skipna = True))
         return train_data.sel(variable=variable).pipe(lambda da: (da.mean(skipna = True).values.item(), da.std(skipna = True).values.item())) # added skipna = True !
 
+    def _compute_per_var_stats(self):
+        """Compute (mean, std) for each variable independently."""
+        train_data = self.input_da.sel(self.xrds_kw.get('domain_limits', {})).sel(self.domains['train'])
+        stats = {}
+        for var in ['input', 'input_sla', 'tgt', 'tgt_sla']:
+            da = train_data.sel(variable=var)
+            m = float(da.mean(skipna=True).values)
+            s = float(da.std(skipna=True).values)
+            stats[var] = (m, s)
+            print(f"  Per-var norm  {var:12s}: mean={m:.6f}  std={s:.6f}")
+        # keep single SST norm_stats in sync
+        self._norm_stats = stats['tgt']
+        return stats
+
     def post_fn(self):
-        m, s = self.norm_stats()
-        def normalize(item): return (item - m) / s
+        if self.normalize_per_var:
+            stats = self.norm_stats_per_var()
+            def make_normalize(m, s):
+                return lambda item: (item - m) / s
+            norm_input     = make_normalize(*stats['input'])
+            norm_input_sla = make_normalize(*stats['input_sla'])
+            norm_tgt       = make_normalize(*stats['tgt'])
+            norm_tgt_sla   = make_normalize(*stats['tgt_sla'])
+        else:
+            m, s = self.norm_stats()
+            def _norm(item): return (item - m) / s
+            norm_input = norm_input_sla = norm_tgt = norm_tgt_sla = _norm
 
         return ft.partial(ft.reduce, lambda i, f: f(i), [
-            TrainingItem_SLA_INPUT_SLA_OUTPUT._make, # TrainingItem_sst for L3
-            lambda item: item._replace(tgt=normalize(item.tgt)),
-            lambda item: item._replace(tgt_sla=normalize(item.tgt_sla)),
-            lambda item: item._replace(input=normalize(item.input)),
-            lambda item: item._replace(input_sla=normalize(item.input_sla)),
+            TrainingItem_SLA_INPUT_SLA_OUTPUT._make,
+            lambda item: item._replace(tgt=norm_tgt(item.tgt)),
+            lambda item: item._replace(tgt_sla=norm_tgt_sla(item.tgt_sla)),
+            lambda item: item._replace(input=norm_input(item.input)),
+            lambda item: item._replace(input_sla=norm_input_sla(item.input_sla)),
         ])
 
     def setup(self, stage='test'):
