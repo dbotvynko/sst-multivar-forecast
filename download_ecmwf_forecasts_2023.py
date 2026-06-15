@@ -59,9 +59,17 @@ else:
     print(f"  -> Déjà présent : {WAVE_OUTPUT_REAN}")
 
 if not os.path.exists(WAVE_OUTPUT_ANFC):
+    # Vérifier les variables disponibles dans le dataset anfc
+    ds_check = copernicusmarine.open_dataset(dataset_id="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i")
+    print(f"  Variables disponibles dans anfc : {list(ds_check.data_vars)}")
+    ds_check.close()
+
+    wave_vars_anfc = [v for v in ["VHM0_WW", "VTM02_WW", "VPED", "VMDR_WW"] if v in list(ds_check.data_vars)]
+    print(f"  Variables sélectionnées : {wave_vars_anfc}")
+
     copernicusmarine.subset(
         dataset_id="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i",
-        variables=["VHM0_WW", "VTM02_WW"],
+        variables=wave_vars_anfc,
         start_datetime="2023-01-01T00:00:00",
         end_datetime="2023-12-31T21:00:00",
         output_filename=WAVE_OUTPUT_ANFC,
