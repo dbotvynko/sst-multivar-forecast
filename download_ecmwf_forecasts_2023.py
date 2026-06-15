@@ -38,21 +38,37 @@ print("=" * 60)
 print("CMEMS — Vagues journalières 2023")
 print("=" * 60)
 
-WAVE_VARS = ["VHM0", "VTM02", "VHM0_WW", "VTM02_WW"]
-WAVE_OUTPUT = f"{OUTPUT_DIR}/waves_daily_2023.nc"
+# VHM0_WW et VTM02_WW disponibles uniquement dans le produit analysis/forecast
+# On utilise deux datasets séparés :
+#   - réanalyse (my) pour VHM0 et VTM02
+#   - analysis/forecast (anfc) pour VHM0_WW et VTM02_WW
 
-if not os.path.exists(WAVE_OUTPUT):
+WAVE_OUTPUT_REAN  = f"{OUTPUT_DIR}/waves_daily_2023_rean.nc"
+WAVE_OUTPUT_ANFC  = f"{OUTPUT_DIR}/waves_daily_2023_anfc.nc"
+
+if not os.path.exists(WAVE_OUTPUT_REAN):
     copernicusmarine.subset(
         dataset_id="cmems_mod_glo_wav_my_0.2deg_PT3H-i",
-        variables=WAVE_VARS,
+        variables=["VHM0", "VTM02"],
         start_datetime="2023-01-01T00:00:00",
         end_datetime="2023-12-31T21:00:00",
-        output_filename=WAVE_OUTPUT,
-        force_download=True,
+        output_filename=WAVE_OUTPUT_REAN,
     )
-    print(f"  -> Sauvegardé : {WAVE_OUTPUT}")
+    print(f"  -> Sauvegardé : {WAVE_OUTPUT_REAN}")
 else:
-    print(f"  -> Déjà présent : {WAVE_OUTPUT}")
+    print(f"  -> Déjà présent : {WAVE_OUTPUT_REAN}")
+
+if not os.path.exists(WAVE_OUTPUT_ANFC):
+    copernicusmarine.subset(
+        dataset_id="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i",
+        variables=["VHM0_WW", "VTM02_WW"],
+        start_datetime="2023-01-01T00:00:00",
+        end_datetime="2023-12-31T21:00:00",
+        output_filename=WAVE_OUTPUT_ANFC,
+    )
+    print(f"  -> Sauvegardé : {WAVE_OUTPUT_ANFC}")
+else:
+    print(f"  -> Déjà présent : {WAVE_OUTPUT_ANFC}")
 
 # =============================================================================
 # PARTIE 2 — VARIABLES ATMOSPHÉRIQUES via CDS (ERA5)
@@ -121,11 +137,15 @@ print("=" * 60)
 import xarray as xr
 import numpy as np
 
-# Vagues : déjà en 3h, on resample en daily mean
-if os.path.exists(WAVE_OUTPUT):
-    ds_wav = xr.open_dataset(WAVE_OUTPUT)
+# Vagues : merger réanalyse + anfc puis resample daily
+if os.path.exists(WAVE_OUTPUT_REAN) and os.path.exists(WAVE_OUTPUT_ANFC):
+    ds_rean = xr.open_dataset(WAVE_OUTPUT_REAN)
+    ds_anfc = xr.open_dataset(WAVE_OUTPUT_ANFC)
+    # Interpoler anfc sur la grille réanalyse (0.2°) si nécessaire
+    ds_anfc_interp = ds_anfc.interp(longitude=ds_rean.longitude, latitude=ds_rean.latitude)
+    ds_wav = xr.merge([ds_rean, ds_anfc_interp])
     ds_wav_daily = ds_wav.resample(time="1D").mean()
-    out_wav_daily = WAVE_OUTPUT.replace(".nc", "_daily_mean.nc")
+    out_wav_daily = f"{OUTPUT_DIR}/waves_daily_mean_2023.nc"
     ds_wav_daily.to_netcdf(out_wav_daily)
     print(f"  Vagues daily mean -> {out_wav_daily}")
 
