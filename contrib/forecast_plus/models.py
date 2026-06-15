@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import torch
+import kornia.filters as kfilts
 
 from src.models import Lit4dVarNetForecast, GradSolverZero, BilinAEPriorCost, \
     Lit4dVarNetForecast_UNet, Lit4dVarNet_UNet_MLD, Lit4dVarNetForecast_only1leadtime, \
@@ -854,7 +855,7 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT(Plus4dVarNetFor
         loss, loss_sla, out = self.base_step(batch, phase)    
         #oss_l3 = self.weighted_mse(out - batch.sst_anomaly, self.rec_weight) # for the composed loss fine tuning
         grad_loss = self.weighted_mse(kfilts.sobel(out[:,0]) - kfilts.sobel(batch.tgt), self.rec_weight)
-        grad_loss_sla = self.weight_mse(kfilts.sobel(out[:,1]) - kfilts.sobel(batch.tgt_sla), self.rec_weight)
+        grad_loss_sla = self.weighted_mse(kfilts.sobel(out[:,1]) - kfilts.sobel(batch.tgt_sla), self.rec_weight)
         with torch.no_grad():
             self.log(f"{phase}_grad_mse", grad_loss * self.norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
 
@@ -869,7 +870,7 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT(Plus4dVarNetFor
     def base_step(self, batch, phase=""):
         #atch = torch.nan_to_num(batch, nan=0.0)
         out = self(batch=batch)
-        out = out.view(out.size()[0], 2, 29, out.size()[-2:])
+        out = out.view(out.size()[0], 2, 29, *out.size()[-2:])
 
         loss = self.weighted_mse(out[:,0] - batch.tgt, self.rec_weight)
         loss_sla = self.weighted_mse(out[:, 1] - batch.tgt_sla, self.rec_weight)

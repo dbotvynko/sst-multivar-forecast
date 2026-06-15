@@ -1,12 +1,15 @@
 # @package _global_
 
 paths:
-    masks_path: /Odyssey/public/glorys/obs_masks/global_obs_6sats_masks_2022.pickle 
-    glorys12_data: /Odyssey/public/ODYSSEA_IFREMER_SST/CLIMATO/SST-L3-NRT-2010_2019_NRT_ANOMALY_CLIMATO_f32_0.25deg_grid_sla_unfiltered.nc
+    masks_path: /Odyssey/public/global_obs_odyssea_multisensor_no_flag_dt_v2.pickle
+      #/Odyssey/public/glorys/obs_masks/global_obs_6sats_masks_2022.pickle 
+    glorys12_data: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+      #/Odyssey/public/ODYSSEA_IFREMER_SST/CLIMATO/SST-L3-NRT-2010_2019_NRT_ANOMALY_CLIMATO_f32_0.25deg_grid_sla_unfiltered.nc
       #/Odyssey/public/ODYSSEA_IFREMER_SST/CLIMATO/SST-L3-NRT-2010_2019_ANOMALY_CLIMATO_f32_0.25deg_pyresample_adjusted_sst.nc
       #sst_anomaly_L3_f32_compressed.nc
       # conservative method : SST_GLO_PHY_L3S_MY_010_039/cmems_obs-sst_glo_phy_my_l3s_P1D-m_202311/SST-L3-MY-2010_2019_ANOMALY_CLIMATO_f32.nc #CLIMATO/sst_anomaly_L3_f32_compressed.nc
-    full_l4_path: /Odyssey/public/ODYSSEA_IFREMER_SST/L4/SST-L4-2010_2020_ANOMALY_CLIMATO_f32_0.25deg_pyresample_analysed_sst_grid_from_sla_unfiltered.nc
+    full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+      #/Odyssey/public/ODYSSEA_IFREMER_SST/L4/SST-L4-2010_2020_ANOMALY_CLIMATO_f32_0.25deg_pyresample_analysed_sst_grid_from_sla_unfiltered.nc
       #/Odyssey/public/ODYSSEA_IFREMER_SST/L4/SST-L4-2010_2020_ANOMALY_CLIMATO_f32_0.25deg_pyresample_analysed_sst.nc
       #sst_anomaly_f32_compressed.nc
     ref_data_l4: "" #~ /Odyssey/public/ODYSSEA_IFREMER_SST/CLIMATO/sst_anomaly_f32_compressed.nc #mems_obs-sst_glo_phy_nrt_l4_P1D-m_multi-vars_179.95W-179.95E_79.95S-79.95N_2021-01-01-2022-12-31.nc
@@ -22,24 +25,24 @@ domain:
     lat:
       _target_: builtins.slice
       _args_:
-      - -20
-      - 20
+      - -80
+      - 80
     lon:
       _target_: builtins.slice
       _args_:
-      - -20
-      - 20
+      - -180
+      - 180
   test:
     lat:
       _target_: builtins.slice
       _args_:
-      - -20
-      - 20
+      - -80
+      - 80
     lon:
       _target_: builtins.slice
       _args_:
-      - -20
-      - 20
+      - -180
+      - 180
 
 trainer:
   _target_: pytorch_lightning.Trainer
@@ -49,7 +52,7 @@ trainer:
   devices: 1
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
-    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_input_and_output_UNet_ResBlock_17M_2010_2019_AugTrue_MSE+GradLoss
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_input_and_output_UNet_ResBlock_17M_2010_2019_AugTrue_MSE+GradLoss_OSSE
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 895 #700 + 195 # 350 before

@@ -1026,46 +1026,49 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
     print('Here')
-    full_L4_data = xr.open_dataset(full_l4_path)
-    print(full_L4_data)
+    
+    #full_L4_data = xr.open_dataset(full_l4_path)
+    #print(full_L4_data)
 
-    sla_input = xr.open_dataset('/Odyssey/public/altimetry_traces/2010_2019/gridded_0.25deg/sla_unfiltered_0.25deg.nc')
+    #sla_input = xr.open_dataset('/Odyssey/public/altimetry_traces/2010_2019/gridded_0.25deg/sla_unfiltered_0.25deg.nc')
+    sla_input = xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc')
     print(sla_input)
-    sla_output = xr.open_dataset('/Odyssey/public/duacs/2010_2019/duacs_2010_2019_0.25deg_float32.nc')
-    print(sla_output)
+    #sla_output = xr.open_dataset('/Odyssey/public/duacs/2010_2019/duacs_2010_2019_0.25deg_float32.nc')
+    #sla_output = sla_input
+    #print(sla_output)
 
-    full_L4_data = full_L4_data.sel(time=ds.time.values)
+    #full_L4_data = full_L4_data.sel(time=ds.time.values)
 
     sla_input = sla_input.sel(time = ds.time.values)
 
-    sla_output = sla_output.sel(time = ds.time.values)
+    #sla_output = sla_output.sel(time = ds.time.values)
                                     #ds.time.values)
-    print('sla unfiltered mean')
-    print(sla_input.sla_unfiltered.mean(skipna = True))
+    #print('sla unfiltered mean')
+    #rint(sla_input.sla_unfiltered.mean(skipna = True))
 
-    if 'latitude' in list(full_L4_data.dims):
-        full_L4_data = full_L4_data.rename({'latitude':'lat', 'longitude':'lon'})
+    #if 'latitude' in list(full_L4_data.dims):
+    #    full_L4_data = full_L4_data.rename({'latitude':'lat', 'longitude':'lon'})
 
     if test_cut is not None:
         ds = ds.sel(time=test_cut)
-        full_L4_data = full_L4_data.sel(time = test_cut)
+        #full_L4_data = full_L4_data.sel(time = test_cut)
         sla_input = sla_input.sel(time = test_cut)
-        sla_output = sla_output.sel(time = test_cut)
+        #sla_output = sla_output.sel(time = test_cut)
 
     ds = (
         ds
         .load()
         .assign(
             input = lambda ds: ds["sst_anomaly"],
-            input_sla = lambda ds: sla_input["sla_unfiltered"],
-            tgt= lambda ds: full_L4_data["sst_anomaly"], #lambda ds: ds[variables]
-            tgt_sla= lambda ds: sla_output['sla']
+            input_sla = lambda ds: sla_input["obs"],
+            tgt= lambda ds: ds["sst_anomaly"], #lambda ds: ds[variables]
+            tgt_sla= lambda ds: sla_input['tgt']
         )
         )
-    print('ds tgt value 0 ')
-    print(full_L4_data.sst_anomaly.values)
-    print('ds tgt mean')
-    print(full_L4_data.sst_anomaly.mean(skipna = True))
+    #print('ds tgt value 0 ')
+    #print(full_L4_data.sst_anomaly.values)
+    #print('ds tgt mean')
+    #print(full_L4_data.sst_anomaly.mean(skipna = True))
     ds['time'] = ds['time'].astype(str)
     print("ds final")
     print(ds)
