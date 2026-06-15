@@ -471,7 +471,8 @@ class BaseDataModule_SST_SLA_INPUT(pl.LightningDataModule):
 '''
 class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
     def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None,
-                 normalize_per_var=False, **kwargs):
+                 normalize_per_var=False, norm_stats_per_var=None, stats_save_path=None,
+                 **kwargs):
         super().__init__()
         self.input_da = input_da
         self.domains = domains
@@ -480,12 +481,19 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         self.aug_kw = aug_kw if aug_kw is not None else {}
         self._norm_stats = norm_stats
         self.normalize_per_var = normalize_per_var
+        self.stats_save_path = stats_save_path
 
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
         self._post_fn = None
-        self._norm_stats_per_var = None
+        # Accept pre-computed per-var stats (list of [m,s] pairs or dict)
+        if norm_stats_per_var is not None:
+            self._norm_stats_per_var = {
+                k: tuple(v) for k, v in norm_stats_per_var.items()
+            }
+        else:
+            self._norm_stats_per_var = None
 
     def norm_stats(self):
         if self._norm_stats is None:
@@ -512,7 +520,8 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         return train_data.sel(variable=variable).pipe(lambda da: (da.mean(skipna = True).values.item(), da.std(skipna = True).values.item())) # added skipna = True !
 
     def _compute_per_var_stats(self):
-        """Compute (mean, std) for each variable independently."""
+        """Compute (mean, std) for each variable independently and optionally save to JSON."""
+        import json, os
         train_data = self.input_da.sel(self.xrds_kw.get('domain_limits', {})).sel(self.domains['train'])
         stats = {}
         for var in ['input', 'input_sla', 'tgt', 'tgt_sla']:
@@ -523,6 +532,13 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
             print(f"  Per-var norm  {var:12s}: mean={m:.6f}  std={s:.6f}")
         # keep single SST norm_stats in sync
         self._norm_stats = stats['tgt']
+
+        # save to JSON for reuse in inference
+        save_path = self.stats_save_path or 'norm_stats_per_var.json'
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        with open(save_path, 'w') as f:
+            json.dump({k: list(v) for k, v in stats.items()}, f, indent=2)
+        print(f"  Per-var norm stats saved to: {save_path}")
         return stats
 
     def post_fn(self):

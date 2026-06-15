@@ -91,6 +91,15 @@ datamodule:
   aug_kw:
     aug_factor: 1
     aug_only: True
+  normalize_per_var: True
+  # Fill these values from norm_stats_per_var.json produced during training.
+  # Example (replace with your actual values):
+  #   python -c "import json; print(json.load(open('norm_stats_per_var.json')))"
+  norm_stats_per_var:
+    input:     [0.0, 1.0]   # <-- replace with training values
+    input_sla: [0.0, 1.0]   # <-- replace with training values
+    tgt:       [0.0, 1.0]   # <-- replace with training values
+    tgt_sla:   [0.0, 1.0]   # <-- replace with training values
 
 model:
   # Uses Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT which reshapes the
