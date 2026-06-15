@@ -1,107 +1,152 @@
 """
-Téléchargement des forecasts ECMWF journaliers 2023 depuis Copernicus CDS
-- Vent : u10 et v10 (TIGGE — ensemble forecasts archivés)
-- Vagues : hauteur significative, période, direction (seasonal forecasts)
+Téléchargement des données ECMWF journalières 2023
+
+  CMEMS (copernicusmarine) — vagues :
+    - SWH  : hauteur significative des vagues         (VHM0)
+    - MWP  : période moyenne des vagues               (VTM02)
+    - SHWW : hauteur significative mer du vent        (VHM0_WW)
+    - MPWW : période moyenne mer du vent              (VTM02_WW)
+
+  CDS ERA5 (cdsapi) — variables atmosphériques :
+    - sshf             : flux de chaleur sensible
+    - slhf             : flux de chaleur latente
+    - MSL              : pression atmosphérique niveau mer
+    - neutral wind u/v : composantes du vent neutre à 10m
 
 Prérequis :
-    pip install cdsapi xarray netCDF4
-    Fichier ~/.cdsapirc :
+    pip install cdsapi copernicusmarine xarray netCDF4
+
+    ~/.cdsapirc :
         url: https://cds.climate.copernicus.eu/api/v2
         key: <UID>:<API-KEY>
+
+    Compte CMEMS : https://marine.copernicus.eu  (login via copernicusmarine login)
 """
 
 import cdsapi
+import copernicusmarine
 import os
 
 OUTPUT_DIR = "data/ecmwf_forecasts_2023"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# =============================================================================
+# PARTIE 1 — VAGUES via CMEMS
+# Dataset : global-reanalysis-wav-001-032 (réanalyse vagues ECMWF, daily)
+# =============================================================================
+print("=" * 60)
+print("CMEMS — Vagues journalières 2023")
+print("=" * 60)
+
+WAVE_VARS = ["VHM0", "VTM02", "VHM0_WW", "VTM02_WW"]
+WAVE_OUTPUT = f"{OUTPUT_DIR}/waves_daily_2023.nc"
+
+if not os.path.exists(WAVE_OUTPUT):
+    copernicusmarine.subset(
+        dataset_id="cmems_mod_glo_wav_my_0.2deg_PT3H-i",
+        variables=WAVE_VARS,
+        start_datetime="2023-01-01T00:00:00",
+        end_datetime="2023-12-31T21:00:00",
+        output_filename=WAVE_OUTPUT,
+        force_download=True,
+    )
+    print(f"  -> Sauvegardé : {WAVE_OUTPUT}")
+else:
+    print(f"  -> Déjà présent : {WAVE_OUTPUT}")
+
+# =============================================================================
+# PARTIE 2 — VARIABLES ATMOSPHÉRIQUES via CDS (ERA5)
+# Dataset : reanalysis-era5-single-levels, résolution ~31km, daily
+# Téléchargement mois par mois pour éviter les timeouts
+# =============================================================================
+print("\n" + "=" * 60)
+print("CDS ERA5 — Variables atmosphériques journalières 2023")
+print("=" * 60)
+
 client = cdsapi.Client()
 
-# ---------------------------------------------------------------------------
-# 1. VENT DAILY — u10 et v10 via TIGGE (ensemble forecasts archivés ECMWF)
-#    Téléchargement mois par mois pour éviter les timeouts
-# ---------------------------------------------------------------------------
-print("Téléchargement des forecasts journaliers de vent (u10, v10) — TIGGE...")
+ATMO_VARS = [
+    "surface_sensible_heat_flux",           # sshf
+    "surface_latent_heat_flux",             # slhf
+    "mean_sea_level_pressure",              # MSL
+    "10m_u_component_of_neutral_wind",      # neutral wind u
+    "10m_v_component_of_neutral_wind",      # neutral wind v
+]
 
+# Tous les mois de 2023
 MONTHS = {
-    "01": list(range(1, 32)),
-    "02": list(range(1, 29)),
-    "03": list(range(1, 32)),
-    "04": list(range(1, 31)),
-    "05": list(range(1, 32)),
-    "06": list(range(1, 31)),
-    "07": list(range(1, 32)),
-    "08": list(range(1, 32)),
-    "09": list(range(1, 31)),
-    "10": list(range(1, 32)),
-    "11": list(range(1, 31)),
-    "12": list(range(1, 32)),
+    "01": [f"{d:02d}" for d in range(1, 32)],
+    "02": [f"{d:02d}" for d in range(1, 29)],
+    "03": [f"{d:02d}" for d in range(1, 32)],
+    "04": [f"{d:02d}" for d in range(1, 31)],
+    "05": [f"{d:02d}" for d in range(1, 32)],
+    "06": [f"{d:02d}" for d in range(1, 31)],
+    "07": [f"{d:02d}" for d in range(1, 32)],
+    "08": [f"{d:02d}" for d in range(1, 32)],
+    "09": [f"{d:02d}" for d in range(1, 31)],
+    "10": [f"{d:02d}" for d in range(1, 32)],
+    "11": [f"{d:02d}" for d in range(1, 31)],
+    "12": [f"{d:02d}" for d in range(1, 32)],
 }
 
 for month, days in MONTHS.items():
-    out_file = f"{OUTPUT_DIR}/wind_uv10_daily_2023_{month}.nc"
+    out_file = f"{OUTPUT_DIR}/atmo_daily_2023_{month}.nc"
     if os.path.exists(out_file):
-        print(f"  -> {out_file} déjà présent, skip.")
+        print(f"  -> Mois {month} déjà présent, skip.")
         continue
 
-    print(f"  Mois {month}...")
+    print(f"  Téléchargement mois {month}...")
     client.retrieve(
-        "tigge",
+        "reanalysis-era5-single-levels",
         {
-            "originating_centre": "ecmwf",
-            "system": "operational",
-            "variable": [
-                "10_metre_u_wind_component",
-                "10_metre_v_wind_component",
-            ],
-            "product_type": "ensemble_mean",   # ou "control_forecast" pour 1 membre
+            "product_type": "reanalysis",
+            "variable": ATMO_VARS,
             "year": "2023",
             "month": month,
-            "day": [f"{d:02d}" for d in days],
-            "time": ["00:00", "12:00"],        # 2 runs par jour
-            "leadtime_hour": ["24"],           # forecast à +24h (J+1)
+            "day": days,
+            "time": [f"{h:02d}:00" for h in range(0, 24)],  # toutes les heures
             "format": "netcdf",
         },
         out_file,
     )
     print(f"  -> Sauvegardé : {out_file}")
 
-# ---------------------------------------------------------------------------
-# 2. VAGUES — moyennes mensuelles (seasonal forecast SEAS5)
-#    Note : les vagues daily ne sont pas dans TIGGE.
-#    Pour du daily, utiliser CMEMS (copernicusmarine) à la place.
-# ---------------------------------------------------------------------------
-print("\nTéléchargement des forecasts de vagues (monthly mean — SEAS5)...")
+# =============================================================================
+# PARTIE 3 — Calcul de la vitesse du vent neutre (norme) et résumé daily
+# =============================================================================
+print("\n" + "=" * 60)
+print("Post-traitement — Agrégation en daily mean")
+print("=" * 60)
 
-client.retrieve(
-    "seasonal-original-single-levels",
-    {
-        "originating_centre": "ecmwf",
-        "system": "51",
-        "variable": [
-            "significant_height_of_combined_wind_waves_and_swell",
-            "mean_wave_period",
-            "mean_wave_direction",
-        ],
-        "product_type": "monthly_mean",
-        "year": "2023",
-        "month": [f"{m:02d}" for m in range(1, 13)],
-        "leadtime_month": ["1", "2", "3", "4", "5", "6"],
-        "format": "netcdf",
-    },
-    f"{OUTPUT_DIR}/waves_forecast_2023.nc",
-)
-print(f"  -> Sauvegardé : {OUTPUT_DIR}/waves_forecast_2023.nc")
-
-# ---------------------------------------------------------------------------
-# 3. Vérification rapide
-# ---------------------------------------------------------------------------
 import xarray as xr
+import numpy as np
 
-for fname in os.listdir(OUTPUT_DIR):
-    if fname.endswith(".nc"):
-        path = f"{OUTPUT_DIR}/{fname}"
-        ds = xr.open_dataset(path)
-        print(f"\n{fname}: {list(ds.data_vars)} | time: {ds.time.values[0]} -> {ds.time.values[-1]}")
-        ds.close()
+# Vagues : déjà en 3h, on resample en daily mean
+if os.path.exists(WAVE_OUTPUT):
+    ds_wav = xr.open_dataset(WAVE_OUTPUT)
+    ds_wav_daily = ds_wav.resample(time="1D").mean()
+    out_wav_daily = WAVE_OUTPUT.replace(".nc", "_daily_mean.nc")
+    ds_wav_daily.to_netcdf(out_wav_daily)
+    print(f"  Vagues daily mean -> {out_wav_daily}")
+
+# Atmosphérique : concaténer tous les mois et resample daily
+atmo_files = sorted([
+    f"{OUTPUT_DIR}/{f}" for f in os.listdir(OUTPUT_DIR)
+    if f.startswith("atmo_daily_2023_") and f.endswith(".nc")
+])
+
+if atmo_files:
+    ds_atmo = xr.open_mfdataset(atmo_files, combine="by_coords")
+
+    # Vitesse du vent neutre à 10m (norme)
+    ds_atmo["wind_speed_neutral"] = np.sqrt(
+        ds_atmo["u10n"] ** 2 + ds_atmo["v10n"] ** 2
+    )
+
+    ds_atmo_daily = ds_atmo.resample(time="1D").mean()
+    out_atmo = f"{OUTPUT_DIR}/atmo_daily_mean_2023.nc"
+    ds_atmo_daily.to_netcdf(out_atmo)
+    print(f"  Atmosphérique daily mean -> {out_atmo}")
+    print(f"\n  Variables disponibles : {list(ds_atmo_daily.data_vars)}")
+
+print("\nTerminé !")

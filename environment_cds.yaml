@@ -7,5 +7,6 @@ dependencies:
   - pip
   - pip:
     - cdsapi
+    - copernicusmarine
     - xarray
     - netCDF4
