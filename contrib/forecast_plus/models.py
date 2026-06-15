@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import torch
+import xarray as xr
 import kornia.filters as kfilts
 
 from src.models import Lit4dVarNetForecast, GradSolverZero, BilinAEPriorCost, \
@@ -911,19 +912,18 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT(Plus4dVarNetFor
 
 
 """
-    SST and SLA Input & SST and SLA Output — reconstruction per leadtime
-    The UNet outputs 58 channels (29 SST + 29 SLA).  test_step reshapes them
-    to [batch, 2, 29, lat, lon] so that reconstruct_from_items returns a
-    DataArray with v0 dimension ['sst', 'sla'], producing one NetCDF per
-    leadtime that contains both variables.
+    SST and SLA Input & SST and SLA Output — reconstruction per leadtime.
+
+    The UNet outputs 58 channels (29 SST + 29 SLA).  To avoid a CUDA OOM
+    when moving all patches to GPU at once (which would require ~80 GB),
+    test_step stores SST and SLA patches in separate CPU lists.
+    on_test_epoch_end then reconstructs them sequentially (~40 GB each),
+    merges the two DataArrays, and writes one NetCDF per leadtime containing
+    both 'sst' and 'sla' variables.
 """
 class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_sst_and_SLA_Input):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    def test_quantities(self):
-        return ['sst', 'sla']
 
     def clear_gpu_mem(self):
         del self.solver
@@ -932,19 +932,65 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_
     def test_step(self, batch, batch_idx):
         mask_batch = self.mask_batch(batch)
         if batch_idx == 0:
-            self.test_data = []
+            self.test_data_sst = []
+            self.test_data_sla = []
         out = self(batch=mask_batch)
         m, s = self.norm_stats
         # out: [batch, 58, lat, lon] -> [batch, 2, 29, lat, lon]
         out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1))
-        self.test_data.append(out_2var.detach().cpu() * s + m)
+        out_denorm = out_2var.detach().cpu() * s + m
+        self.test_data_sst.append(out_denorm[:, 0:1])  # [batch, 1, 29, lat, lon]
+        self.test_data_sla.append(out_denorm[:, 1:2])  # [batch, 1, 29, lat, lon]
 
     def on_test_epoch_end(self):
         self.clear_gpu_mem()
-        self.test_data = torch.cat(self.test_data).cuda()
-        # Call Plus4dVarNetForecast_UNet_sst_and_SLA_Input.on_test_epoch_end
-        # directly to avoid double clear_gpu_mem in intermediate classes.
-        Plus4dVarNetForecast_UNet_sst_and_SLA_Input.on_test_epoch_end(self)
+
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        output_start = 0 if self.output_only_forecast else -14
+        if self.output_leadtime_start is not None:
+            output_start = self.output_leadtime_start
+
+        # ── SST reconstruction pass (~40 GB GPU) ──────────────────────────
+        test_data_sst = torch.cat(self.test_data_sst).cuda()
+        sst_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sst, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+            sst_das[i] = rec   # DataArray [1, time, lat, lon] already on CPU
+        del test_data_sst
+        torch.cuda.empty_cache()
+
+        # ── SLA reconstruction pass (~40 GB GPU) ──────────────────────────
+        test_data_sla = torch.cat(self.test_data_sla).cuda()
+        metrics = []
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec_sla = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sla, fw)
+            if isinstance(rec_sla, list):
+                rec_sla = rec_sla[0]
+
+            # merge SST and SLA into a single Dataset
+            ds_sst = sst_das[i].assign_coords(v0=['sst']).to_dataset(dim='v0')
+            ds_sla = rec_sla.assign_coords(v0=['sla']).to_dataset(dim='v0')
+            test_data_leadtime = xr.merge([ds_sst, ds_sla])
+
+            if self.logger:
+                test_data_leadtime.to_netcdf(
+                    Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                )
+                print(Path(self.logger.log_dir) / f'test_data_{i + 14}.nc')
+
+            metric_data = test_data_leadtime.pipe(self.pre_metric_fn)
+            metrics_leadtime = pd.Series({
+                metric_n: metric_fn(metric_data)
+                for metric_n, metric_fn in self.metrics.items()
+            })
+            metrics.append(metrics_leadtime)
+
+        print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
 
 
 """
