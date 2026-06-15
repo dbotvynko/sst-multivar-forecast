@@ -911,6 +911,43 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT(Plus4dVarNetFor
 
 
 """
+    SST and SLA Input & SST and SLA Output — reconstruction per leadtime
+    The UNet outputs 58 channels (29 SST + 29 SLA).  test_step reshapes them
+    to [batch, 2, 29, lat, lon] so that reconstruct_from_items returns a
+    DataArray with v0 dimension ['sst', 'sla'], producing one NetCDF per
+    leadtime that contains both variables.
+"""
+class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_sst_and_SLA_Input):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @property
+    def test_quantities(self):
+        return ['sst', 'sla']
+
+    def clear_gpu_mem(self):
+        del self.solver
+        torch.cuda.empty_cache()
+
+    def test_step(self, batch, batch_idx):
+        mask_batch = self.mask_batch(batch)
+        if batch_idx == 0:
+            self.test_data = []
+        out = self(batch=mask_batch)
+        m, s = self.norm_stats
+        # out: [batch, 58, lat, lon] -> [batch, 2, 29, lat, lon]
+        out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1))
+        self.test_data.append(out_2var.detach().cpu() * s + m)
+
+    def on_test_epoch_end(self):
+        self.clear_gpu_mem()
+        self.test_data = torch.cat(self.test_data).cuda()
+        # Call Plus4dVarNetForecast_UNet_sst_and_SLA_Input.on_test_epoch_end
+        # directly to avoid double clear_gpu_mem in intermediate classes.
+        Plus4dVarNetForecast_UNet_sst_and_SLA_Input.on_test_epoch_end(self)
+
+
+"""
     Fine tuning SST
 """
 class Plus4dVarNetForecastPatchGPU_UNet_SST_Tuning(Plus4dVarNetForecast_UNet_sst):

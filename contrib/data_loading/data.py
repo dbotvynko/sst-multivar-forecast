@@ -1091,6 +1091,102 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
 
 
 
+def load_ose_data_with_tgt_mask_SST_SLA_INOUT(
+        path,
+        tgt_path,
+        tgt_path_not_glorys,
+        tgt_path_l3_data,
+        sla_input_path,
+        tgt_sla_path,
+        variable,
+        year,
+):
+    """
+    Load SST L3 observations + gridded SLA for OSE inference with both
+    SST and SLA outputs.  Returns a DataArray with variable dimension
+    ['input', 'input_sla', 'tgt', 'tgt_sla'] as expected by
+    BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT.
+
+    path              : SST L3 NRT file (or overridden by tgt_path_l3_data)
+    tgt_path          : reference SST dataset (e.g. GLORYS12)
+    tgt_path_not_glorys: alternative reference SST (overrides tgt_path if set)
+    tgt_path_l3_data  : alternative SST input (overrides path if set)
+    sla_input_path    : gridded along-track SLA file — must contain a
+                        'sla_unfiltered' (or first) variable for input_sla
+    tgt_sla_path      : reference SLA file — must contain a 'zos', 'sla', or
+                        first variable for tgt_sla
+    variable          : SST variable name (e.g. 'sst_anomaly')
+    year              : inference year (int)
+    """
+    if len(tgt_path_not_glorys) != 0:
+        tgt_path = tgt_path_not_glorys
+    if len(tgt_path_l3_data) != 0:
+        path = tgt_path_l3_data
+
+    print(f'[SST_SLA_INOUT] SST input path : {path}')
+    print(f'[SST_SLA_INOUT] SST tgt path   : {tgt_path}')
+    print(f'[SST_SLA_INOUT] SLA input path : {sla_input_path}')
+    print(f'[SST_SLA_INOUT] SLA tgt path   : {tgt_sla_path}')
+
+    ds = xr.open_dataset(path)
+    ds_sst_ref = xr.open_dataset(tgt_path)
+    ds_sla = xr.open_dataset(sla_input_path)
+    ds_sla_ref = xr.open_dataset(tgt_sla_path)
+
+    # harmonise dimension names
+    for dset_name, dset in [('ds', ds), ('ds_sst_ref', ds_sst_ref),
+                             ('ds_sla', ds_sla), ('ds_sla_ref', ds_sla_ref)]:
+        if 'latitude' in list(dset.dims):
+            dset = dset.rename({'latitude': 'lat', 'longitude': 'lon'})
+
+    if 'latitude' in list(ds_sst_ref.dims):
+        ds_sst_ref = ds_sst_ref.rename({'latitude': 'lat', 'longitude': 'lon'})
+    if 'thetao' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'thetao': variable})
+    if 'analysed_sst' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'analysed_sst': variable})
+    if 'sla' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'sla': variable})
+    if 'analysed_sst' in list(ds.variables):
+        ds = ds.rename({'analysed_sst': variable})
+
+    ds['time'] = pd.to_datetime(ds['time'].values)
+    ds = ds.sel(time=ds['time'].dt.year == year)
+
+    # SST target: one reference snapshot expanded to all time steps
+    tgt_sst = ds.sel(time=str(year) + '-01-20')[variable].expand_dims(
+        time=ds.time
+    ).assign_coords(ds.coords)
+
+    # SLA input: along-track gridded observations
+    sla_input_var = (
+        'sla_unfiltered' if 'sla_unfiltered' in ds_sla.data_vars
+        else list(ds_sla.data_vars)[0]
+    )
+    ds_sla = ds_sla.sel(time=ds.time.values, method='nearest')
+
+    # SLA target: reference L4 SLA product
+    sla_ref_var = (
+        'zos' if 'zos' in ds_sla_ref.data_vars
+        else 'sla' if 'sla' in ds_sla_ref.data_vars
+        else list(ds_sla_ref.data_vars)[0]
+    )
+    ds_sla_ref = ds_sla_ref.sel(time=ds.time.values, method='nearest')
+
+    ds = ds.assign(
+        input=ds[variable],
+        input_sla=ds_sla[sla_input_var].assign_coords(ds.coords),
+        tgt=tgt_sst,
+        tgt_sla=ds_sla_ref[sla_ref_var].assign_coords(ds.coords),
+    )
+
+    return (
+        ds[[*TrainingItem_SLA_INPUT_SLA_OUTPUT._fields]]
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+
+
 """
     SST GLORYS12 OSSE
 """
