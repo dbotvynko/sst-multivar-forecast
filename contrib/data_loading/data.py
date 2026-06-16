@@ -1038,8 +1038,12 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
         ds = ds.sel(time=test_cut)
         sla_input = sla_input.sel(time=test_cut)
 
-    # Crop to the spatial domain before loading into memory.
-    ds = ds.sel(domain)
+    # mask_list (used below when masking=True) is sized for the full,
+    # un-cropped grid, so the domain crop must happen *after* masking is
+    # applied, exactly as in the original code. When masking is off we can
+    # safely crop now for a smaller/faster load.
+    if not masking:
+        ds = ds.sel(domain)
 
     # sla_input is on a different lat/lon grid than ds (e.g. cell centers
     # offset by half a pixel), so label-based alignment in assign() below
@@ -1068,6 +1072,7 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
         ds= ds.assign(
             input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
             )
+        ds = ds.sel(domain)
     ds = (
         ds[[*TrainingItem_SLA_INPUT_SLA_OUTPUT._fields]]
         .transpose("time", "lat", "lon")
