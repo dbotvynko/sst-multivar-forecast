@@ -1036,9 +1036,13 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
         ds = ds.sel(time=test_cut)
         sla_input = sla_input.sel(time=test_cut)
 
-    # Crop to the spatial domain *before* loading into memory.
+    # Crop to the spatial domain before loading into memory. sla_input is
+    # NOT sliced by domain directly here: its lat/lon grid can differ in
+    # ordering/spacing from ds's, and slicing it independently can silently
+    # select an empty/misaligned region (all-NaN). Instead, leave it on its
+    # native grid and let assign() below do label-based alignment onto ds's
+    # (already domain-cropped) coordinates.
     ds = ds.sel(domain)
-    sla_input = sla_input.sel(domain)
 
     ds = (
         ds
