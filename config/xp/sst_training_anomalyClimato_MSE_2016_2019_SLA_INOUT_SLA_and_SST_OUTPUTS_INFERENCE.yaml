@@ -96,10 +96,10 @@ datamodule:
   # Example (replace with your actual values):
   #   python -c "import json; print(json.load(open('norm_stats_per_var.json')))"
   norm_stats_per_var:
-    input:     [0.0, 1.0]   # <-- replace with training values
-    input_sla: [0.0, 1.0]   # <-- replace with training values
-    tgt:       [0.0, 1.0]   # <-- replace with training values
-    tgt_sla:   [0.0, 1.0]   # <-- replace with training values
+    input:     [0.011933957336629063, 0.783643886256093]
+    input_sla: [0.0002454393794220535, 0.086477556521735]
+    tgt:       [0.04924184115169965, 0.8176538405469982]
+    tgt_sla:   [-0.0016289089926582276, 0.08688851348839738]
 
 model:
   # Uses Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT which reshapes the
