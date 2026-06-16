@@ -1,0 +1,35 @@
+
+*** These modified files were found in JOE when it aborted on Mon Jun 15 19:49:03 2026
+*** JOE was aborted because the terminal closed
+
+*** Fichier '(Sans nom)'
+Q
+Y
+q
+xx
+ZZ
+
+*** Fichier '(Sans nom)'
+/Odyssey/private/d21botvy/OCEAN_FORECAST/4dvarnet-starter-glorys12-MULTIVARIATE/.git/COMMIT_EDITMSG
+
+*** Fichier '/Odyssey/private/d21botvy/OCEAN_FORECAST/4dvarnet-starter-glorys12-MULTIVARIATE/.git/COMMIT_EDITMSG'
+Keep config file from previous branch
+
+# Veuillez saisir le message de validation pour vos modifications. Les lignes
+# commençant par '#' seront ignorées, et un message vide abandonne la validation.
+#
+# Auteur :     Daria BOTVYNKO <d21botvy@sl-mee-br-215.imta.fr>
+# Validateur : Daria BOTVYNKO <d21botvy@sl-mee-br-207.imta.fr>
+#
+# rebasage interactif en cours ; sur 53c922e
+# Dernières commandes effectuées (5 commandes effectuées) :
+#    pick 0cabde1 Add full daily 2023 download: CMEMS waves + ERA5 atmospheric variables
+#    pick 01ab270 Keep config file from previous branch
+# Aucune commande restante.
+# Vous êtes en train de rebaser la branche 'claude/eager-darwin-0wa5pw' sur '53c922e'.
+#
+# Modifications qui seront validées :
+#	modifié :         config/xp/ose_pipeline_proc_2023_global_1patch_SST_SLA_INOUT.yaml[BOTVYNKO					
+*** Fichier '* Startup Log *'
+Traitement de '/etc/joe/editorrc'...Traitement de '/etc/joe/ftyperc'...Finished processing /etc/joe/ftyperc
+Finished processing /etc/joe/editorrc

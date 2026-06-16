@@ -83,7 +83,7 @@ datamodule:
     test: 
       time: {_target_: builtins.slice,  _args_: ['2019-12-31', '2019-12-30']}
   xrds_kw:
-    patch_dims: { time: 29, lat: 720, lon: 1440} # 29 before LatLon
+    patch_dims: { time: 29, lat: 680, lon: 1440} # 29 before LatLon
     strides: { time: 1, lat: 672, lon: 1432}
     domain_limits: ${domain.train}
   dl_kw: {batch_size: 1, num_workers: 4} # 8 changed here, before : 1
