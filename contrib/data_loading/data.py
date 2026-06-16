@@ -1017,58 +1017,39 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
         test_cut: if not None, {'time': slice(time1, time2)}, speeding up the loading by pre-cutting the loaded data
     """
     print('ENTERED HERE ! ')
-    ds =  (
-            xr.open_dataset(path).sel(time = time_domains) #rename({'dt_analysis_daily_avg' : 'sst_anomaly'}) # if the file is original GLORYS12 file : drop_vars('depth')
-            )
+    # Open lazily (dask-backed) and keep only what we need before any
+    # .load(): selecting variables/time/space first means the eventual
+    # .load() only reads the cropped subset off disk instead of the
+    # full global, full-period dataset.
+    ds = xr.open_dataset(path, chunks={})[["sst_anomaly"]].sel(time=time_domains)
     ds['time'] = ds.time.dt.date
-    print("ds")
-    print(ds)
     if 'latitude' in list(ds.dims):
-        ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
-    print('Here')
-    
-    #full_L4_data = xr.open_dataset(full_l4_path)
-    #print(full_L4_data)
+        ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
 
-    #sla_input = xr.open_dataset('/Odyssey/public/altimetry_traces/2010_2019/gridded_0.25deg/sla_unfiltered_0.25deg.nc')
-    sla_input = xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc')
-    print(sla_input)
-    #sla_output = xr.open_dataset('/Odyssey/public/duacs/2010_2019/duacs_2010_2019_0.25deg_float32.nc')
-    #sla_output = sla_input
-    #print(sla_output)
-
-    #full_L4_data = full_L4_data.sel(time=ds.time.values)
-
-    sla_input = sla_input.sel(time = ds.time.values)
-
-    #sla_output = sla_output.sel(time = ds.time.values)
-                                    #ds.time.values)
-    #print('sla unfiltered mean')
-    #rint(sla_input.sla_unfiltered.mean(skipna = True))
-
-    #if 'latitude' in list(full_L4_data.dims):
-    #    full_L4_data = full_L4_data.rename({'latitude':'lat', 'longitude':'lon'})
+    sla_input = (
+        xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc', chunks={})
+        [["obs", "tgt"]]
+        .sel(time=ds.time.values)
+    )
 
     if test_cut is not None:
         ds = ds.sel(time=test_cut)
-        #full_L4_data = full_L4_data.sel(time = test_cut)
-        sla_input = sla_input.sel(time = test_cut)
-        #sla_output = sla_output.sel(time = test_cut)
+        sla_input = sla_input.sel(time=test_cut)
+
+    # Crop to the spatial domain *before* loading into memory.
+    ds = ds.sel(domain)
+    sla_input = sla_input.sel(domain)
 
     ds = (
         ds
-        .load()
         .assign(
-            input = lambda ds: ds["sst_anomaly"],
-            input_sla = lambda ds: sla_input["obs"],
-            tgt= lambda ds: ds["sst_anomaly"], #lambda ds: ds[variables]
-            tgt_sla= lambda ds: sla_input['tgt']
+            input=lambda ds: ds["sst_anomaly"],
+            input_sla=lambda ds: sla_input["obs"],
+            tgt=lambda ds: ds["sst_anomaly"],
+            tgt_sla=lambda ds: sla_input['tgt']
         )
+        .load()
         )
-    #print('ds tgt value 0 ')
-    #print(full_L4_data.sst_anomaly.values)
-    #print('ds tgt mean')
-    #print(full_L4_data.sst_anomaly.mean(skipna = True))
     ds['time'] = ds['time'].astype(str)
     print("ds final")
     print(ds)
@@ -1080,7 +1061,6 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
         ds= ds.assign(
             input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
             )
-    ds = ds.sel(domain)
     ds = (
         ds[[*TrainingItem_SLA_INPUT_SLA_OUTPUT._fields]]
         .transpose("time", "lat", "lon")
