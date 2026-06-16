@@ -112,6 +112,12 @@ for month, days in MONTHS.items():
         print(f"  -> Mois {month} déjà présent, skip.")
         continue
 
+    # Nettoyer un éventuel dossier temporaire laissé par un run précédent
+    import shutil
+    extract_dir = f"{OUTPUT_DIR}/_tmp_atmo_{month}"
+    if os.path.exists(extract_dir):
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
     print(f"  Téléchargement mois {month}...")
     raw_file = f"{OUTPUT_DIR}/atmo_raw_2023_{month}.download"
     client.retrieve(
@@ -132,10 +138,8 @@ for month, days in MONTHS.items():
     # quand on mélange des variables de types différents (sshf/slhf = accum,
     # msl/u10n/v10n = instant). On détecte et on fusionne dans ce cas.
     import zipfile
-    import shutil
 
     if zipfile.is_zipfile(raw_file):
-        extract_dir = f"{OUTPUT_DIR}/_tmp_atmo_{month}"
         os.makedirs(extract_dir, exist_ok=True)
         with zipfile.ZipFile(raw_file) as zf:
             zf.extractall(extract_dir)
@@ -144,10 +148,16 @@ for month, days in MONTHS.items():
             for f in os.listdir(extract_dir)
             if f.endswith(".nc")
         ]
-        ds_merged = xr.merge([xr.open_dataset(f) for f in nc_files])
+        # .load() force la lecture en mémoire et libère les handles de fichier,
+        # nécessaire pour pouvoir supprimer le dossier ensuite (NFS notamment)
+        sub_datasets = []
+        for f in nc_files:
+            with xr.open_dataset(f) as ds_tmp:
+                sub_datasets.append(ds_tmp.load())
+        ds_merged = xr.merge(sub_datasets)
         ds_merged.to_netcdf(out_file)
         ds_merged.close()
-        shutil.rmtree(extract_dir)
+        shutil.rmtree(extract_dir, ignore_errors=True)
         os.remove(raw_file)
     else:
         os.rename(raw_file, out_file)
