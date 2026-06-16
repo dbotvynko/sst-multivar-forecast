@@ -132,6 +132,7 @@ for month, days in MONTHS.items():
     # quand on mélange des variables de types différents (sshf/slhf = accum,
     # msl/u10n/v10n = instant). On détecte et on fusionne dans ce cas.
     import zipfile
+    import shutil
 
     if zipfile.is_zipfile(raw_file):
         extract_dir = f"{OUTPUT_DIR}/_tmp_atmo_{month}"
@@ -146,9 +147,7 @@ for month, days in MONTHS.items():
         ds_merged = xr.merge([xr.open_dataset(f) for f in nc_files])
         ds_merged.to_netcdf(out_file)
         ds_merged.close()
-        for f in nc_files:
-            os.remove(f)
-        os.rmdir(extract_dir)
+        shutil.rmtree(extract_dir)
         os.remove(raw_file)
     else:
         os.rename(raw_file, out_file)
