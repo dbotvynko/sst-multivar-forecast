@@ -1025,12 +1025,14 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     ds['time'] = ds.time.dt.date
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
-
+    print(xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc', chunks={}))
     sla_input = (
         xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc', chunks={})
         [["obs", "tgt"]]
         .sel(time=ds.time.values)
     )
+
+    print(sla_input)
 
     if test_cut is not None:
         ds = ds.sel(time=test_cut)
@@ -1048,9 +1050,9 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     ds = (
         ds
         .assign(
-            input=lambda ds: ds["sst_anomaly"],
+            input=lambda ds: ds["sst_anomaly"] + 273,
             input_sla=lambda ds: sla_input["obs"],
-            tgt=lambda ds: ds["sst_anomaly"],
+            tgt=lambda ds: ds["sst_anomaly"] + 273,
             tgt_sla=lambda ds: sla_input['tgt']
         )
         .load()

@@ -73,7 +73,7 @@ datamodule:
     masks_path: ${paths.masks_path}
     full_l4_path: ${paths.full_l4_path}
     domain: ${domain.train}
-    masking: False
+    masking: True
     time_domains: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-30']}
   domains:
     train:
