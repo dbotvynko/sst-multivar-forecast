@@ -45,9 +45,8 @@ EXISTING_FILES = {
         f"{OUTPUT_DIR}/{f}" for f in os.listdir(OUTPUT_DIR)
         if f.startswith("atmo_daily_2023_") and f.endswith(".nc")
     ),
-    "sst": "CHEMIN_VERS_TON_FICHIER_SST.nc",       # <-- à remplir
-    "sla": "CHEMIN_VERS_TON_FICHIER_SLA.nc",       # <-- à remplir
-    "ugos_vgos": "CHEMIN_VERS_TON_FICHIER_UGOS_VGOS.nc",  # <-- à remplir
+    # Fichier unique contenant SST, SLA, MDT, BATHY, UGOS, VGOS (variables en MAJUSCULES)
+    "sst_sla_uv": "GS_UNet_sla_real_data_training_sst_odyssea_leadtime_00.nc",  # <-- ajuste le chemin si besoin
 }
 
 # =============================================================================
@@ -82,36 +81,38 @@ elif EXISTING_FILES["atmo_months"]:
     datasets.append(ds_atmo)
     print(f"  Atmo (mensuel x{len(EXISTING_FILES['atmo_months'])}) OK")
 
-# SST
-if os.path.exists(EXISTING_FILES["sst"]):
-    ds_sst = xr.open_dataset(EXISTING_FILES["sst"])
-    datasets.append(ds_sst)
-    print("  SST OK")
-else:
-    print(f"  ATTENTION : SST non trouvée -> {EXISTING_FILES['sst']}")
+# SST, SLA, MDT, BATHY, UGOS, VGOS — fichier unique
+if os.path.exists(EXISTING_FILES["sst_sla_uv"]):
+    ds_main = xr.open_dataset(EXISTING_FILES["sst_sla_uv"])
 
-# SLA
-if os.path.exists(EXISTING_FILES["sla"]):
-    ds_sla = xr.open_dataset(EXISTING_FILES["sla"])
-    datasets.append(ds_sla)
-    print("  SLA OK")
-else:
-    print(f"  ATTENTION : SLA non trouvée -> {EXISTING_FILES['sla']}")
+    # Renomme en minuscules pour rester cohérent avec le reste du pipeline
+    rename_map = {
+        v: v.lower() for v in ["SST", "SLA", "MDT", "BATHY", "UGOS", "VGOS"]
+        if v in ds_main
+    }
+    ds_main = ds_main.rename(rename_map)
 
-# ugos / vgos
-if os.path.exists(EXISTING_FILES["ugos_vgos"]):
-    ds_uv = xr.open_dataset(EXISTING_FILES["ugos_vgos"])
-    datasets.append(ds_uv)
-    print("  ugos/vgos OK")
+    # SSH = SLA + MDT (topographie dynamique absolue)
+    if "sla" in ds_main and "mdt" in ds_main:
+        ds_main["ssh"] = ds_main["sla"] + ds_main["mdt"]
+        print("  SSH calculée (SLA + MDT)")
+
+    # elevation = BATHY déjà présente
+    if "bathy" in ds_main:
+        ds_main = ds_main.rename({"bathy": "elevation"})
+
+    datasets.append(ds_main)
+    print(f"  SST/SLA/UGOS/VGOS/MDT/BATHY OK -> variables : {list(ds_main.data_vars)}")
 else:
-    print(f"  ATTENTION : ugos/vgos non trouvés -> {EXISTING_FILES['ugos_vgos']}")
+    print(f"  ATTENTION : fichier principal non trouvé -> {EXISTING_FILES['sst_sla_uv']}")
 
 # =============================================================================
 # 2. TÉLÉCHARGER LES VARIABLES MANQUANTES : SSS et SSH (adt)
 # =============================================================================
 print("\n" + "=" * 60)
-print("2. Téléchargement des variables manquantes (SSS, SSH)")
+print("2. Téléchargement de la variable manquante (SSS)")
 print("=" * 60)
+print("  (SSH déjà calculée via SLA + MDT, pas de téléchargement nécessaire)")
 
 SSS_FILE = f"{OUTPUT_DIR}/sss_daily_2023.nc"
 if not os.path.exists(SSS_FILE):
@@ -129,28 +130,10 @@ if not os.path.exists(SSS_FILE):
 else:
     print(f"  -> Déjà présent : {SSS_FILE}")
 
-SSH_FILE = f"{OUTPUT_DIR}/ssh_daily_2023.nc"
-if not os.path.exists(SSH_FILE):
-    print("  Téléchargement SSH (adt)...")
-    copernicusmarine.subset(
-        dataset_id="cmems_obs-sl_glo_phy-ssh_my_allsat-l4-duacs-0.25deg_P1D",
-        variables=["adt"],
-        minimum_longitude=LON_MIN, maximum_longitude=LON_MAX,
-        minimum_latitude=LAT_MIN, maximum_latitude=LAT_MAX,
-        start_datetime=f"{START_DATE}T00:00:00",
-        end_datetime=f"{END_DATE}T00:00:00",
-        output_filename=SSH_FILE,
-    )
-else:
-    print(f"  -> Déjà présent : {SSH_FILE}")
-
 ds_sss = xr.open_dataset(SSS_FILE).squeeze("depth", drop=True) if os.path.exists(SSS_FILE) else None
-ds_ssh = xr.open_dataset(SSH_FILE) if os.path.exists(SSH_FILE) else None
-
 if ds_sss is not None:
+    ds_sss = ds_sss.rename({"so": "sss"})
     datasets.append(ds_sss)
-if ds_ssh is not None:
-    datasets.append(ds_ssh)
 
 # =============================================================================
 # 3. RÉGRIDDER TOUT SUR UNE GRILLE COMMUNE 0.25° + DÉCOUPER GULF STREAM
@@ -190,8 +173,8 @@ print("\n" + "=" * 60)
 print("4. Calcul de DOS et des gradients (SST, SSS, SLA)")
 print("=" * 60)
 
-sst_var = "analysed_sst" if "analysed_sst" in ds_merged else ("sst" if "sst" in ds_merged else None)
-sss_var = "so" if "so" in ds_merged else None
+sst_var = "sst" if "sst" in ds_merged else ("analysed_sst" if "analysed_sst" in ds_merged else None)
+sss_var = "sss" if "sss" in ds_merged else None
 sla_var = "sla" if "sla" in ds_merged else ("zos" if "zos" in ds_merged else None)
 
 if sst_var and sss_var:
