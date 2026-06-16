@@ -28,10 +28,11 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 FINAL_OUTPUT = f"{OUTPUT_DIR}/merged_gulfstream_2023_025deg.nc"
 
-# Zone Gulf Stream (ajuste si besoin)
-LON_MIN, LON_MAX = -82.0, -40.0
-LAT_MIN, LAT_MAX = 20.0, 50.0
-TARGET_RES = 0.25  # degrés
+# Zone Gulf Stream — calée sur l'emprise réelle du fichier SST/SLA/UGOS/VGOS
+# (grille native ~0.4°, lon -79.95 -> -50.35, lat 24.05 -> 39.65)
+LON_MIN, LON_MAX = -79.95, -50.35
+LAT_MIN, LAT_MAX = 24.05, 39.65
+TARGET_RES = 0.25  # degrés (régriddage depuis la grille native ~0.4°)
 
 START_DATE = "2023-01-01"
 END_DATE = "2023-12-31"
