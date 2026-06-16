@@ -26,6 +26,7 @@ Prérequis :
 import cdsapi
 import copernicusmarine
 import os
+import xarray as xr
 
 OUTPUT_DIR = "data/ecmwf_forecasts_2023"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -112,6 +113,7 @@ for month, days in MONTHS.items():
         continue
 
     print(f"  Téléchargement mois {month}...")
+    raw_file = f"{OUTPUT_DIR}/atmo_raw_2023_{month}.download"
     client.retrieve(
         "reanalysis-era5-single-levels",
         {
@@ -123,8 +125,34 @@ for month, days in MONTHS.items():
             "time": [f"{h:02d}:00" for h in range(0, 24)],  # toutes les heures
             "format": "netcdf",
         },
-        out_file,
+        raw_file,
     )
+
+    # CDS renvoie parfois un zip contenant plusieurs .nc (instant / accum)
+    # quand on mélange des variables de types différents (sshf/slhf = accum,
+    # msl/u10n/v10n = instant). On détecte et on fusionne dans ce cas.
+    import zipfile
+
+    if zipfile.is_zipfile(raw_file):
+        extract_dir = f"{OUTPUT_DIR}/_tmp_atmo_{month}"
+        os.makedirs(extract_dir, exist_ok=True)
+        with zipfile.ZipFile(raw_file) as zf:
+            zf.extractall(extract_dir)
+        nc_files = [
+            os.path.join(extract_dir, f)
+            for f in os.listdir(extract_dir)
+            if f.endswith(".nc")
+        ]
+        ds_merged = xr.merge([xr.open_dataset(f) for f in nc_files])
+        ds_merged.to_netcdf(out_file)
+        ds_merged.close()
+        for f in nc_files:
+            os.remove(f)
+        os.rmdir(extract_dir)
+        os.remove(raw_file)
+    else:
+        os.rename(raw_file, out_file)
+
     print(f"  -> Sauvegardé : {out_file}")
 
 # =============================================================================
@@ -134,7 +162,6 @@ print("\n" + "=" * 60)
 print("Post-traitement — Agrégation en daily mean")
 print("=" * 60)
 
-import xarray as xr
 import numpy as np
 
 # Vagues : merger réanalyse + anfc puis resample daily
