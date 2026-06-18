@@ -235,7 +235,11 @@ print("\n" + "=" * 60)
 print("6. Sauvegarde du fichier fusionné")
 print("=" * 60)
 
-ds_merged.to_netcdf(FINAL_OUTPUT)
+encoding = {
+    var: {"dtype": "float32", "zlib": True, "complevel": 4}
+    for var in ds_merged.data_vars
+}
+ds_merged.to_netcdf(FINAL_OUTPUT, encoding=encoding)
 print(f"  -> Sauvegardé : {FINAL_OUTPUT}")
 print(f"  Variables finales : {list(ds_merged.data_vars)}")
 print(f"  Dimensions : {dict(ds_merged.sizes)}")
