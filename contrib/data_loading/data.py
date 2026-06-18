@@ -1045,11 +1045,12 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     if not masking:
         ds = ds.sel(domain)
 
-    # sla_input is on a different lat/lon grid than ds (e.g. cell centers
-    # offset by half a pixel), so label-based alignment in assign() below
-    # would find no matching coordinates and silently produce all-NaN
-    # input_sla/tgt_sla. Regrid it onto ds's exact coordinates first.
-    sla_input = sla_input.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
+    # sla_input is on a different lat/lon grid than ds (cell centers offset
+    # by 0.125°). Use reindex with nearest-neighbor to align onto ds's grid
+    # while preserving the sparse L3 structure (NaN gaps stay NaN).
+    # "obs" is sparse along-track data, "tgt" is dense — but reindex
+    # preserves both correctly (no gap-filling, just coordinate matching).
+    sla_input = sla_input.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
 
     ds = (
         ds
