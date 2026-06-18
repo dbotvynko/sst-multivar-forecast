@@ -936,13 +936,12 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_
             self.test_data_sla = []
         out = self(batch=mask_batch)
 
-        # SST denorm stats (always available via norm_stats)
-        m_sst, s_sst = self.norm_stats
-        # SLA denorm stats: use per-var if available, else fall back to SST stats
         dm = self.trainer.datamodule
         if hasattr(dm, 'norm_stats_per_var') and dm.normalize_per_var:
+            m_sst, s_sst = dm.norm_stats_per_var()['tgt']
             m_sla, s_sla = dm.norm_stats_per_var()['tgt_sla']
         else:
+            m_sst, s_sst = self.norm_stats
             m_sla, s_sla = m_sst, s_sst
 
         # out: [batch, 58, lat, lon] -> [batch, 2, 29, lat, lon]
