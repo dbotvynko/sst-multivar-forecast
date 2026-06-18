@@ -1165,11 +1165,16 @@ def load_ose_data_with_tgt_mask_SST_SLA_INOUT(
     )
     ds_sla_ref = ds_sla_ref.sel(time=ds.time.values, method='nearest')
 
+    # Regrid SLA datasets onto the SST grid (they may have different
+    # lat/lon coverage or a half-pixel offset).
+    ds_sla = ds_sla.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
+    ds_sla_ref = ds_sla_ref.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
+
     ds = ds.assign(
         input=ds[variable],
-        input_sla=ds_sla[sla_input_var].assign_coords(ds.coords),
+        input_sla=ds_sla[sla_input_var],
         tgt=tgt_sst,
-        tgt_sla=ds_sla_ref[sla_ref_var].assign_coords(ds.coords),
+        tgt_sla=ds_sla_ref[sla_ref_var],
     )
 
     return (
