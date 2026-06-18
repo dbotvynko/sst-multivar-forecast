@@ -1165,9 +1165,10 @@ def load_ose_data_with_tgt_mask_SST_SLA_INOUT(
     )
     ds_sla_ref = ds_sla_ref.sel(time=ds.time.values, method='nearest')
 
-    # Regrid SLA datasets onto the SST grid (they may have different
-    # lat/lon coverage or a half-pixel offset).
-    ds_sla = ds_sla.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
+    # Align SLA grids onto the SST grid. Use reindex (not interp) for
+    # input SLA to preserve the sparse L3 observation structure (NaN gaps
+    # must not be filled). Use interp for the L4 target which is dense.
+    ds_sla = ds_sla.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
     ds_sla_ref = ds_sla_ref.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
 
     ds = ds.assign(
