@@ -47,7 +47,7 @@ EXISTING_FILES = {
         if f.startswith("atmo_daily_2023_") and f.endswith(".nc")
     ),
     # Fichier unique contenant SST, SLA, MDT, BATHY, UGOS, VGOS (variables en MAJUSCULES)
-    "sst_sla_uv": "GS_UNet_sla_real_data_training_sst_odyssea_leadtime_00.nc",  # <-- ajuste le chemin si besoin
+    "sst_sla_uv": "/Odyssey/public/glorys/rec/glorys4_global_1patch_SST_SLA_INOUT_UNet_ResBlock_2010_2019_MSEGradLoss_perVarNorm_anotherCKPT/nrt_sst_sla_2023/GS_UNet_sla_real_data_training_sst_odyssea_leadtime_00.nc",  # <-- ajuste le chemin si besoin
 }
 
 # =============================================================================

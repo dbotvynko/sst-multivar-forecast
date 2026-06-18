@@ -19,7 +19,7 @@ if os.path.exists(SSS_FILE):
 else:
     print("Téléchargement SSS (salinité de surface) — Gulf Stream 2023...")
     copernicusmarine.subset(
-        dataset_id="cmems_mod_glo_phy_anfc_0.083deg_P1D-m",
+        dataset_id="cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m",
         variables=["so"],
         minimum_longitude=-79.95, maximum_longitude=-50.35,
         minimum_latitude=24.05, maximum_latitude=39.65,

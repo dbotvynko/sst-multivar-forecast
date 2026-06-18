@@ -35,7 +35,7 @@ paths:
   # ── SLA reference for output evaluation ───────────────────────────────────
   # L4 SLA reference product used as tgt_sla during inference metrics.
   # Variable priority: 'zos' > 'sla' > first variable.
-  tgt_sla_path: /Odyssey/public/duacs/2023/duacs_2020_2023_0.25deg.nc
+  tgt_sla_path: /Odyssey/public/duacs/2023/duacs_2023_2024_0.25deg_float32.nc
 
   # ── Reconstruction and metrics output directories ─────────────────────────
   rec_path: /Odyssey/public/glorys/rec/
