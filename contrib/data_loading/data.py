@@ -1061,6 +1061,7 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
 
     if not masking:
         ds = ds.sel(domain)
+        print(f'[SLA_INOUT] After domain crop: {ds.dims}')
 
     sla_l3 = sla_l3.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
     sla_tgt = sla_tgt.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
