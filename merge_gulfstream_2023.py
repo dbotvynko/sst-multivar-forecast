@@ -152,18 +152,31 @@ def standardize_coords(ds):
         rename_map["latitude"] = "lat"
     if "longitude" in ds.dims or "longitude" in ds.coords:
         rename_map["longitude"] = "lon"
-    return ds.rename(rename_map) if rename_map else ds
+    if rename_map:
+        ds = ds.rename(rename_map)
+    # Convertir longitudes 0-360 -> -180-180 si nécessaire
+    if "lon" in ds.coords and float(ds.lon.max()) > 180:
+        ds = ds.assign_coords(lon=(ds.lon + 180) % 360 - 180).sortby("lon")
+    # S'assurer que lat est triée en ordre croissant
+    if "lat" in ds.coords and float(ds.lat[0]) > float(ds.lat[-1]):
+        ds = ds.sortby("lat")
+    return ds
 
 regridded = []
-for ds in datasets:
+for i, ds in enumerate(datasets):
     ds = standardize_coords(ds)
     if "lon" not in ds.coords or "lat" not in ds.coords:
         print(f"  ATTENTION : dataset sans lon/lat standard, ignoré -> {list(ds.data_vars)}")
         continue
     ds_crop = ds.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
+    if ds_crop.sizes.get("lon", 0) == 0 or ds_crop.sizes.get("lat", 0) == 0:
+        print(f"  ATTENTION : crop vide pour {list(ds.data_vars)}, lon range: [{float(ds.lon.min()):.1f}, {float(ds.lon.max()):.1f}]")
+        continue
+    # Charger en mémoire avant interp (évite les problèmes dask sur gros datasets)
+    ds_crop = ds_crop.load()
     ds_regrid = ds_crop.interp(lon=target_lon, lat=target_lat, method="linear")
     regridded.append(ds_regrid)
-    print(f"  Régriddé : {list(ds.data_vars)}")
+    print(f"  Régriddé : {list(ds_regrid.data_vars)}")
 
 ds_merged = xr.merge(regridded, compat="override", join="outer")
 
@@ -222,7 +235,11 @@ print("\n" + "=" * 60)
 print("6. Sauvegarde du fichier fusionné")
 print("=" * 60)
 
-ds_merged.to_netcdf(FINAL_OUTPUT)
+encoding = {
+    var: {"dtype": "float32", "zlib": True, "complevel": 4}
+    for var in ds_merged.data_vars
+}
+ds_merged.to_netcdf(FINAL_OUTPUT, encoding=encoding)
 print(f"  -> Sauvegardé : {FINAL_OUTPUT}")
 print(f"  Variables finales : {list(ds_merged.data_vars)}")
 print(f"  Dimensions : {dict(ds_merged.sizes)}")
