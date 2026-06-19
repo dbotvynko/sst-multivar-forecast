@@ -16,7 +16,7 @@
 #   rec_path/xp_name/data_name/test_data_{14+i}.nc
 #   Variables in each file: 'sst' (SST anomaly forecast) and 'sla' (SLA forecast)
 
-xp_name: glorys4_global_1patch_SST_SLA_INOUT_UNet_ResBlock_2010_2019_MSEGradLoss_perVarNorm_anotherCKPT
+xp_name: glorys4_global_1patch_SST_SLA_INOUT_UNet_ResBlock_2010_2019_MSEGradLoss_perVarNorm_anotherCKPT_N2
 data_name: nrt_sst_sla_2023
 
 paths:
