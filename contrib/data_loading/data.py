@@ -1008,57 +1008,70 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT(path, masks_path, full_l
 """
     SST OSE + SLA INPUYT and SLA + SST outout OSE
 """
-def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_path, full_l4_path, domain, time_domains, variables="sea_surface_temperature",masking=True, test_cut=None): # zos before
+def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_path, full_l4_path, domain, time_domains, variables="sea_surface_temperature",masking=True, test_cut=None, sla_l3_path=None, sla_l4_path=None): # zos before
     """
         Function to load glorys data
         domain: lat and long extremities to cut data
         variables: variable to load
         masking: whether to mask the input data using the masks in masks_path
         test_cut: if not None, {'time': slice(time1, time2)}, speeding up the loading by pre-cutting the loaded data
+        sla_l3_path: path to along-track SLA L3 data (if None, uses hardcoded GLORYS path)
+        sla_l4_path: path to reference SLA L4 data (if None, uses 'tgt' from the same L3 file)
     """
     print('ENTERED HERE ! ')
-    # Open lazily (dask-backed) and keep only what we need before any
-    # .load(): selecting variables/time/space first means the eventual
-    # .load() only reads the cropped subset off disk instead of the
-    # full global, full-period dataset.
     ds = xr.open_dataset(path, chunks={})[["sst_anomaly"]].sel(time=time_domains)
     ds['time'] = ds.time.dt.date
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
-    print(xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc', chunks={}))
-    sla_input = (
-        xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc', chunks={})
-        [["obs", "tgt"]]
+
+    if sla_l3_path is None:
+        sla_l3_path = '/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc'
+
+    print(f'[SLA_INOUT] SLA L3 path: {sla_l3_path}')
+    sla_l3 = (
+        xr.open_dataset(sla_l3_path, chunks={})
+        [["obs"]]
         .sel(time=ds.time.values)
     )
 
-    print(sla_input)
+    if sla_l4_path is not None:
+        print(f'[SLA_INOUT] SLA L4 path: {sla_l4_path}')
+        sla_l4 = (
+            xr.open_dataset(sla_l4_path, chunks={})
+            .sel(time=ds.time.values)
+        )
+        if 'latitude' in list(sla_l4.dims):
+            sla_l4 = sla_l4.rename({'latitude': 'lat', 'longitude': 'lon'})
+        sla_var = next((v for v in ['sla', 'zos', 'tgt'] if v in sla_l4), list(sla_l4.data_vars)[0])
+        sla_tgt = sla_l4[[sla_var]].rename({sla_var: 'tgt'})
+    else:
+        sla_tgt = (
+            xr.open_dataset(sla_l3_path, chunks={})
+            [["tgt"]]
+            .sel(time=ds.time.values)
+        )
+
+    print(sla_l3)
+    print(sla_tgt)
 
     if test_cut is not None:
         ds = ds.sel(time=test_cut)
-        sla_input = sla_input.sel(time=test_cut)
+        sla_l3 = sla_l3.sel(time=test_cut)
+        sla_tgt = sla_tgt.sel(time=test_cut)
 
-    # mask_list (used below when masking=True) is sized for the full,
-    # un-cropped grid, so the domain crop must happen *after* masking is
-    # applied, exactly as in the original code. When masking is off we can
-    # safely crop now for a smaller/faster load.
     if not masking:
         ds = ds.sel(domain)
 
-    # sla_input is on a different lat/lon grid than ds (cell centers offset
-    # by 0.125°). Use reindex with nearest-neighbor to align onto ds's grid
-    # while preserving the sparse L3 structure (NaN gaps stay NaN).
-    # "obs" is sparse along-track data, "tgt" is dense — but reindex
-    # preserves both correctly (no gap-filling, just coordinate matching).
-    sla_input = sla_input.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+    sla_l3 = sla_l3.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+    sla_tgt = sla_tgt.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
 
     ds = (
         ds
         .assign(
             input=lambda ds: ds["sst_anomaly"] + 273,
-            input_sla=lambda ds: sla_input["obs"],
+            input_sla=lambda ds: sla_l3["obs"],
             tgt=lambda ds: ds["sst_anomaly"] + 273,
-            tgt_sla=lambda ds: sla_input['tgt']
+            tgt_sla=lambda ds: sla_tgt['tgt']
         )
         .load()
         )
