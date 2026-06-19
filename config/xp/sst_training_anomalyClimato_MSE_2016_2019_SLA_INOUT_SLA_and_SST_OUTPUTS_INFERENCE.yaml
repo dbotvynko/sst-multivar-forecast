@@ -84,8 +84,8 @@ datamodule:
     test:
       time: {_target_: builtins.slice, _args_: ['2019-12-31', '2019-12-30']}
   xrds_kw:
-    patch_dims: {time: 29, lat: 720, lon: 1440}
-    strides: {time: 1, lat: 672, lon: 1432}
+    patch_dims: {time: 29, lat: 641, lon: 1440}
+    strides: {time: 1, lat: 633, lon: 1432}
     domain_limits: ${domain.train}
   dl_kw: {batch_size: 1, num_workers: 4}
   aug_kw:
@@ -96,10 +96,10 @@ datamodule:
   # Example (replace with your actual values):
   #   python -c "import json; print(json.load(open('norm_stats_per_var.json')))"
   norm_stats_per_var:
-    input:     [0.011933957336629063, 0.783643886256093]
-    input_sla: [0.0002454393794220535, 0.086477556521735]
-    tgt:       [0.04924184115169965, 0.8176538405469982]
-    tgt_sla:   [-0.0016289089926582276, 0.08688851348839738]
+    input:     [0.101912, 0.467795]
+    input_sla: [0.061926, 0.082705]
+    tgt:       [0.101912, 0.467795]
+    tgt_sla:   [0.056644, 0.051430]
 
 model:
   # Uses Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT which reshapes the
