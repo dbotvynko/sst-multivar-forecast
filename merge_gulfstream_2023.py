@@ -93,6 +93,11 @@ if os.path.exists(EXISTING_FILES["sst_sla_uv"]):
     }
     ds_main = ds_main.rename(rename_map)
 
+    # Supprimer les variables 2D redondantes qui ne sont pas nécessaires
+    drop_vars = [v for v in ["LON", "LAT", "DATE_cos", "DATE_sin"] if v in ds_main]
+    if drop_vars:
+        ds_main = ds_main.drop_vars(drop_vars)
+
     # SSH = SLA + MDT (topographie dynamique absolue)
     if "sla" in ds_main and "mdt" in ds_main:
         ds_main["ssh"] = ds_main["sla"] + ds_main["mdt"]
@@ -152,6 +157,8 @@ def standardize_coords(ds):
         rename_map["latitude"] = "lat"
     if "longitude" in ds.dims or "longitude" in ds.coords:
         rename_map["longitude"] = "lon"
+    if "valid_time" in ds.dims or "valid_time" in ds.coords:
+        rename_map["valid_time"] = "time"
     if rename_map:
         ds = ds.rename(rename_map)
     # Convertir longitudes 0-360 -> -180-180 si nécessaire
@@ -175,10 +182,33 @@ for i, ds in enumerate(datasets):
     # Charger en mémoire avant interp (évite les problèmes dask sur gros datasets)
     ds_crop = ds_crop.load()
     ds_regrid = ds_crop.interp(lon=target_lon, lat=target_lat, method="linear")
+    # Resampler en daily mean si la résolution temporelle est sub-journalière
+    if "time" in ds_regrid.dims and ds_regrid.sizes["time"] > 400:
+        ds_regrid = ds_regrid.resample(time="1D").mean()
+        print(f"  Régriddé + resample daily : {list(ds_regrid.data_vars)}")
+    else:
+        print(f"  Régriddé : {list(ds_regrid.data_vars)}")
     regridded.append(ds_regrid)
-    print(f"  Régriddé : {list(ds_regrid.data_vars)}")
 
 ds_merged = xr.merge(regridded, compat="override", join="outer")
+
+# =============================================================================
+# 3b. CONVERSIONS D'UNITÉS
+# =============================================================================
+print("\n" + "=" * 60)
+print("3b. Conversions d'unités")
+print("=" * 60)
+
+# SST : Kelvin -> °C
+if "sst" in ds_merged and float(ds_merged["sst"].mean()) > 200:
+    ds_merged["sst"] = ds_merged["sst"] - 273.15
+    print("  SST : K -> °C")
+
+# sshf et slhf : J/m² (cumulé horaire) -> W/m² (diviser par 3600)
+for flux_var in ["sshf", "slhf"]:
+    if flux_var in ds_merged:
+        ds_merged[flux_var] = ds_merged[flux_var] / 3600.0
+        print(f"  {flux_var} : J/m² -> W/m²")
 
 # =============================================================================
 # 4. CALCULS DÉRIVÉS — DOS (densité) et gradients
@@ -191,10 +221,13 @@ sst_var = "sst" if "sst" in ds_merged else ("analysed_sst" if "analysed_sst" in 
 sss_var = "sss" if "sss" in ds_merged else None
 sla_var = "sla" if "sla" in ds_merged else ("zos" if "zos" in ds_merged else None)
 
+# DOS : densité de surface via TEOS-10 (gsw)
+# gsw attend SST en °C et SSS en PSU
 if sst_var and sss_var:
-    SA = ds_merged[sss_var]
-    CT = gsw.CT_from_t(SA, ds_merged[sst_var], p=0)
-    ds_merged["DOS"] = (SA.dims, gsw.density.rho(SA.values, CT.values, 0))
+    sst_celsius = ds_merged[sst_var]
+    SA = gsw.SA_from_SP(ds_merged[sss_var], 0, ds_merged.lon, ds_merged.lat)
+    CT = gsw.CT_from_t(SA, sst_celsius, 0)
+    ds_merged["DOS"] = (sst_celsius.dims, gsw.density.rho(SA.values, CT.values, 0))
     print("  DOS calculée")
 else:
     print(f"  DOS non calculée (SST ou SSS manquante : sst={sst_var}, sss={sss_var})")
