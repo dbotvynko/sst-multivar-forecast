@@ -1030,7 +1030,7 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     print(f'[SLA_INOUT] SLA L3 path: {sla_l3_path}')
     sla_l3 = (
         xr.open_dataset(sla_l3_path, chunks={})
-        [["obs"]]
+        [["sla_unfiltered"]] # obs before
         .sel(time=ds.time.values)
     )
 
@@ -1068,9 +1068,9 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     ds = (
         ds
         .assign(
-            input=lambda ds: ds["sst_anomaly"] + 273,
-            input_sla=lambda ds: sla_l3["obs"],
-            tgt=lambda ds: ds["sst_anomaly"] + 273,
+            input=lambda ds: ds["sst_anomaly"], # + 273,
+            input_sla=lambda ds: sla_l3["sla_unfiltered"],
+            tgt=lambda ds: ds["sst_anomaly"], #+ 273,
             tgt_sla=lambda ds: sla_tgt['tgt']
         )
         .load()
