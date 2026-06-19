@@ -193,6 +193,24 @@ for i, ds in enumerate(datasets):
 ds_merged = xr.merge(regridded, compat="override", join="outer")
 
 # =============================================================================
+# 3b. CONVERSIONS D'UNITÉS
+# =============================================================================
+print("\n" + "=" * 60)
+print("3b. Conversions d'unités")
+print("=" * 60)
+
+# SST : Kelvin -> °C
+if "sst" in ds_merged and float(ds_merged["sst"].mean()) > 200:
+    ds_merged["sst"] = ds_merged["sst"] - 273.15
+    print("  SST : K -> °C")
+
+# sshf et slhf : J/m² (cumulé horaire) -> W/m² (diviser par 3600)
+for flux_var in ["sshf", "slhf"]:
+    if flux_var in ds_merged:
+        ds_merged[flux_var] = ds_merged[flux_var] / 3600.0
+        print(f"  {flux_var} : J/m² -> W/m²")
+
+# =============================================================================
 # 4. CALCULS DÉRIVÉS — DOS (densité) et gradients
 # =============================================================================
 print("\n" + "=" * 60)
@@ -203,10 +221,13 @@ sst_var = "sst" if "sst" in ds_merged else ("analysed_sst" if "analysed_sst" in 
 sss_var = "sss" if "sss" in ds_merged else None
 sla_var = "sla" if "sla" in ds_merged else ("zos" if "zos" in ds_merged else None)
 
+# DOS : densité de surface via TEOS-10 (gsw)
+# gsw attend SST en °C et SSS en PSU
 if sst_var and sss_var:
-    SA = ds_merged[sss_var]
-    CT = gsw.CT_from_t(SA, ds_merged[sst_var], p=0)
-    ds_merged["DOS"] = (SA.dims, gsw.density.rho(SA.values, CT.values, 0))
+    sst_celsius = ds_merged[sst_var]
+    SA = gsw.SA_from_SP(ds_merged[sss_var], 0, ds_merged.lon, ds_merged.lat)
+    CT = gsw.CT_from_t(SA, sst_celsius, 0)
+    ds_merged["DOS"] = (sst_celsius.dims, gsw.density.rho(SA.values, CT.values, 0))
     print("  DOS calculée")
 else:
     print(f"  DOS non calculée (SST ou SSS manquante : sst={sst_var}, sss={sss_var})")
