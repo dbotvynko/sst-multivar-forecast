@@ -93,6 +93,11 @@ if os.path.exists(EXISTING_FILES["sst_sla_uv"]):
     }
     ds_main = ds_main.rename(rename_map)
 
+    # Supprimer les variables 2D redondantes qui ne sont pas nécessaires
+    drop_vars = [v for v in ["LON", "LAT", "DATE_cos", "DATE_sin"] if v in ds_main]
+    if drop_vars:
+        ds_main = ds_main.drop_vars(drop_vars)
+
     # SSH = SLA + MDT (topographie dynamique absolue)
     if "sla" in ds_main and "mdt" in ds_main:
         ds_main["ssh"] = ds_main["sla"] + ds_main["mdt"]
@@ -152,6 +157,8 @@ def standardize_coords(ds):
         rename_map["latitude"] = "lat"
     if "longitude" in ds.dims or "longitude" in ds.coords:
         rename_map["longitude"] = "lon"
+    if "valid_time" in ds.dims or "valid_time" in ds.coords:
+        rename_map["valid_time"] = "time"
     if rename_map:
         ds = ds.rename(rename_map)
     # Convertir longitudes 0-360 -> -180-180 si nécessaire
@@ -175,8 +182,13 @@ for i, ds in enumerate(datasets):
     # Charger en mémoire avant interp (évite les problèmes dask sur gros datasets)
     ds_crop = ds_crop.load()
     ds_regrid = ds_crop.interp(lon=target_lon, lat=target_lat, method="linear")
+    # Resampler en daily mean si la résolution temporelle est sub-journalière
+    if "time" in ds_regrid.dims and ds_regrid.sizes["time"] > 400:
+        ds_regrid = ds_regrid.resample(time="1D").mean()
+        print(f"  Régriddé + resample daily : {list(ds_regrid.data_vars)}")
+    else:
+        print(f"  Régriddé : {list(ds_regrid.data_vars)}")
     regridded.append(ds_regrid)
-    print(f"  Régriddé : {list(ds_regrid.data_vars)}")
 
 ds_merged = xr.merge(regridded, compat="override", join="outer")
 
