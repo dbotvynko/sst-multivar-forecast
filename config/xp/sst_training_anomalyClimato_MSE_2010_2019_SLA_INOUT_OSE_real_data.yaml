@@ -84,6 +84,8 @@ datamodule:
   aug_kw:
     aug_factor: 1
     aug_only: True
+  normalize_per_var: True
+  stats_save_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_INOUT_and_OUTPUT_OSE_real_data/norm_stats_per_var.json
 
 model:
   _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT
