@@ -1336,14 +1336,13 @@ class Lit4dVarNetForecast_UNet_sst_and_SLA_Input(Lit4dVarNet_UNet_sst):
     output_only_forecast: if True, for test_dataloader will reconstruct and evaluate only for leadtimes from present and onwards
     """
 
-    def __init__(self, solver, rec_weight, opt_fn, test_metrics=None, pre_metric_fn=None, norm_stats=None, persist_rw=True, output_only_forecast=False):
+    def __init__(self, solver, rec_weight, opt_fn, test_metrics=None, pre_metric_fn=None, norm_stats=None, persist_rw=True, output_only_forecast=False, ablation_mode=None):
         super().__init__(solver, rec_weight, opt_fn, test_metrics, pre_metric_fn, norm_stats, persist_rw)
         self.output_only_forecast=output_only_forecast
+        self.ablation_mode = ablation_mode
 
     @staticmethod
-    def mask_batch(batch):
-
-        # temporal masking
+    def _mask_future(batch):
         new_input = batch.input
         dims = new_input.size()
         new_input[:, dims[1]//2:, :, :] = np.nan
@@ -1351,9 +1350,16 @@ class Lit4dVarNetForecast_UNet_sst_and_SLA_Input(Lit4dVarNet_UNet_sst):
         new_input = batch.input_sla
         dims = new_input.size()
         new_input[:, dims[1]//2:, :, :] = np.nan
-        mask_batch = batch._replace(input_sla=new_input)
-
+        mask_batch = mask_batch._replace(input_sla=new_input)
         return mask_batch
+
+    def mask_batch(self, batch):
+        batch = self._mask_future(batch)
+        if self.ablation_mode == 'sst_only':
+            batch = batch._replace(input_sla=torch.full_like(batch.input_sla, float('nan')))
+        elif self.ablation_mode == 'sla_only':
+            batch = batch._replace(input=torch.full_like(batch.input, float('nan')))
+        return batch
 
     def training_step(self, batch, batch_idx):
         mask_batch = self.mask_batch(batch)
