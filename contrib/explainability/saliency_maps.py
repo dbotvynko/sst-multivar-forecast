@@ -163,7 +163,7 @@ def main():
 
     print(f'Test dataset size: {len(dm.test_ds)}')
     batch = dm.test_ds[args.time_idx]
-    batch = type(batch)(*[t.unsqueeze(0).cuda() for t in batch])
+    batch = type(batch)(*[torch.from_numpy(np.array(t)).unsqueeze(0).cuda() for t in batch])
 
     for leadtime in args.leadtimes:
         print(f'Computing saliency for {args.target_var} leadtime +{leadtime}d...')
