@@ -36,13 +36,18 @@ def compute_saliency(model, batch, target_var='sst', leadtime=0):
     """
     model.eval()
 
-    input_sst = batch.input.clone().requires_grad_(True)
-    input_sla = batch.input_sla.clone().requires_grad_(True)
+    # Apply future masking (non-in-place) before enabling gradients
+    sst = batch.input.clone()
+    sla = batch.input_sla.clone()
+    half = sst.size(1) // 2
+    future_mask = torch.full_like(sst[:, half:], float('nan'))
+    sst = torch.cat([sst[:, :half], future_mask], dim=1).requires_grad_(True)
+    future_mask_sla = torch.full_like(sla[:, half:], float('nan'))
+    sla = torch.cat([sla[:, :half], future_mask_sla], dim=1).requires_grad_(True)
 
-    modified_batch = batch._replace(input=input_sst, input_sla=input_sla)
-    mask_batch = model.mask_batch(modified_batch)
+    modified_batch = batch._replace(input=sst, input_sla=sla)
 
-    out = model(batch=mask_batch)
+    out = model(batch=modified_batch)
     out = out.view(out.size()[0], 2, 29, *out.size()[-2:])
 
     var_idx = 0 if target_var == 'sst' else 1
@@ -51,8 +56,8 @@ def compute_saliency(model, batch, target_var='sst', leadtime=0):
     target = out[:, var_idx, time_idx, :, :].mean()
     target.backward()
 
-    saliency_sst = input_sst.grad.detach().abs().cpu().numpy()
-    saliency_sla = input_sla.grad.detach().abs().cpu().numpy()
+    saliency_sst = sst.grad.detach().abs().cpu().numpy()
+    saliency_sla = sla.grad.detach().abs().cpu().numpy()
 
     return saliency_sst, saliency_sla
 
