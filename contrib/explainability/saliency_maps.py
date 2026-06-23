@@ -81,13 +81,17 @@ def plot_saliency(saliency_sst, saliency_sla, target_var, leadtime, output_path,
 
     # Spatial saliency: SST input (mean over time)
     sal_sst_spatial = sal_sst[:14].mean(axis=0)  # only past obs
-    im1 = axes[0, 1].imshow(sal_sst_spatial, aspect='auto', cmap='hot', origin='lower')
+    vmin_sst, vmax_sst = np.nanpercentile(sal_sst_spatial, [1, 99])
+    im1 = axes[0, 1].imshow(sal_sst_spatial, aspect='auto', cmap='inferno',
+                            origin='lower', vmin=vmin_sst, vmax=vmax_sst)
     axes[0, 1].set_title('SST input saliency (spatial, past 14 days mean)')
     plt.colorbar(im1, ax=axes[0, 1])
 
     # Spatial saliency: SLA input (mean over time)
     sal_sla_spatial = sal_sla[:14].mean(axis=0)
-    im2 = axes[1, 0].imshow(sal_sla_spatial, aspect='auto', cmap='hot', origin='lower')
+    vmin_sla, vmax_sla = np.nanpercentile(sal_sla_spatial, [1, 99])
+    im2 = axes[1, 0].imshow(sal_sla_spatial, aspect='auto', cmap='inferno',
+                            origin='lower', vmin=vmin_sla, vmax=vmax_sla)
     axes[1, 0].set_title('SLA input saliency (spatial, past 14 days mean)')
     plt.colorbar(im2, ax=axes[1, 0])
 
