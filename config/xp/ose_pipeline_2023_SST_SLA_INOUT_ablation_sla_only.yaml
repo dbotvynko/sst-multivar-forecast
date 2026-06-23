@@ -44,7 +44,8 @@ paths:
   # ── Model config and checkpoint ───────────────────────────────────────────
   model_config_path: config/xp/sst_training_SLA_INOUT_INFERENCE_ablation_sla_only.yaml
   # Point this to the best checkpoint from your SST+SLA INOUT training run:
-  model_ckpt_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_INOUT_and_OUTPUT_OSE_real_data/sst_training_anomalyClimato_MSE_2010_2019_SLA_INOUT_OSE_real_data/checkpoints/val_mse=0.04740-epoch=182.ckpt
+  model_ckpt_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_INOUT_and_OUTPUT_OSE_real_data/sst_training_anomalyClimato_MSE_2010_2019_SLA_INOUT_OSE_real_data/checkpoints/val_mse=0.04409-epoch=342.ckpt
+    #val_mse=0.04740-epoch=182.ckpt
 
 specs:
   pixels_per_degree: 4
