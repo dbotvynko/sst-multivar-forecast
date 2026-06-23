@@ -6,13 +6,10 @@ of the SST and SLA inputs contribute most to the forecast output.
 
 Usage:
     python contrib/explainability/saliency_maps.py \
-        --config config/xp/sst_training_anomalyClimato_MSE_2016_2019_SLA_INOUT_SLA_and_SST_OUTPUTS_INFERENCE.yaml \
-        --ckpt /path/to/checkpoint.ckpt \
-        --sst_path /path/to/sst_l3_2023.nc \
-        --sla_path /path/to/sla_l3_2023.nc \
-        --tgt_sla_path /path/to/duacs_2023.nc \
-        --output_dir /path/to/output/ \
-        --time_idx 180
+        --pipeline_config config/xp/ose_pipeline_proc_2023_global_1patch_SST_SLA_INOUT.yaml \
+        --output_dir /Odyssey/public/glorys/explainability/ \
+        --time_idx 180 \
+        --leadtimes 0 1 3 6
 """
 import argparse
 import torch
@@ -21,13 +18,13 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from pathlib import Path
 from omegaconf import OmegaConf
-from hydra.utils import instantiate
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from contrib.ose_pipeline.rec_utils import call_cfg_key
 from contrib.ose_pipeline.ose_rec_pipeline import setup_model_config_SST_SLA_INOUT
+from contrib.ose_pipeline.ose_full_pipeline import setup_config
 
 
 def compute_saliency(model, batch, target_var='sst', leadtime=0):
@@ -104,11 +101,8 @@ def plot_saliency(saliency_sst, saliency_sla, target_var, leadtime, output_path,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True)
-    parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--sst_path', required=True)
-    parser.add_argument('--sla_path', required=True)
-    parser.add_argument('--tgt_sla_path', required=True)
+    parser.add_argument('--pipeline_config', required=True,
+                        help='Pipeline config (e.g. ose_pipeline_proc_2023_global_1patch_SST_SLA_INOUT.yaml)')
     parser.add_argument('--output_dir', required=True)
     parser.add_argument('--time_idx', type=int, default=180)
     parser.add_argument('--target_var', default='sst', choices=['sst', 'sla'])
@@ -118,16 +112,56 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    config = OmegaConf.load(args.config)
-    model = call_cfg_key(config, 'model')
+    # Load pipeline config
+    pipeline_cfg = OmegaConf.load(args.pipeline_config)
 
-    ckpt = torch.load(args.ckpt, map_location='cpu')
+    # Extract paths from pipeline config
+    model_config_path = pipeline_cfg.paths.model_config_path
+    model_ckpt_path = pipeline_cfg.paths.model_ckpt_path
+    sla_input_path = pipeline_cfg.paths.sla_input_path
+    tgt_sla_path = pipeline_cfg.paths.tgt_sla_path
+    ose_data_path = pipeline_cfg.paths.ose_data_path
+    min_time = str(pipeline_cfg.specs.min_time)
+    max_time = str(pipeline_cfg.specs.max_time)
+
+    # Setup config the same way the pipeline does
+    (
+        _, _, _, _, gridded_input_path, _, _, _,
+        min_time_offseted, max_time_offseted,
+    ) = setup_config(
+        min_time, max_time,
+        pipeline_cfg.specs.time_day_crop,
+        ose_data_path,
+        pipeline_cfg.paths.rec_path,
+        pipeline_cfg.paths.metrics_path,
+        pipeline_cfg.xp_name,
+        pipeline_cfg.data_name,
+    )
+
+    config = setup_model_config_SST_SLA_INOUT(
+        model_config_path=model_config_path,
+        gridded_input_path=gridded_input_path,
+        sla_input_path=sla_input_path,
+        tgt_sla_path=tgt_sla_path,
+        rec_paths='',
+        min_time=min_time,
+        max_time=max_time,
+        min_time_offseted=min_time_offseted,
+        max_time_offseted=max_time_offseted,
+        overwrite=True,
+    )
+
+    print('Loading model...')
+    model = call_cfg_key(config, 'model')
+    ckpt = torch.load(model_ckpt_path, map_location='cpu')
     model.load_state_dict(ckpt['state_dict'])
     model = model.cuda()
 
+    print('Loading datamodule...')
     dm = call_cfg_key(config, 'datamodule')
     dm.setup(stage='test')
 
+    print(f'Test dataset size: {len(dm.test_ds)}')
     batch = dm.test_ds[args.time_idx]
     batch = type(batch)(*[t.unsqueeze(0).cuda() for t in batch])
 
