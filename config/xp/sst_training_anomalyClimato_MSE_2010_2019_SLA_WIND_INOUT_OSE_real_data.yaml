@@ -15,7 +15,7 @@ paths:
     sla_l3_path: /Odyssey/public/altimetry_traces/2010_2019/gridded_0.25deg/sla_unfiltered_0.25deg.nc
     sla_l4_path: /Odyssey/public/duacs/2010_2019/duacs_2010_2019_0.25deg_float32.nc
     # ERA5 10m wind daily means at 0.25° resolution (u10, v10)
-    wind_path: /Odyssey/public/era5/2010_2019/era5_10m_wind_daily_mean_0.25deg.nc
+    wind_path: /Odyssey/public/era5/2017_2019/era5_10m_wind_daily_mean_0.25deg.nc
     ref_data_l4: ""
     ose_data_paths: ""
 
@@ -79,10 +79,10 @@ datamodule:
     wind_path: ${paths.wind_path}
     domain: ${domain.train}
     masking: False
-    time_domains: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-30']}
+    time_domains: {_target_: builtins.slice, _args_: ['2017-01-01', '2019-12-30']}
   domains:
     train:
-      time: {_target_: builtins.slice, _args_: ['2010-01-01', '2018-12-31']}
+      time: {_target_: builtins.slice, _args_: ['2017-01-01', '2018-12-31']}
     val:
       time: {_target_: builtins.slice, _args_: ['2019-01-01', '2019-12-30']}
     test:
