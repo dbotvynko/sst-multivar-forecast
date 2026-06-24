@@ -1426,14 +1426,7 @@ class Lit4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNet_UNet_sst):
         dims = new_input.size()
         new_input[:, dims[1]//2:, :, :] = np.nan
         mask_batch = mask_batch._replace(input_sla=new_input)
-        new_input = batch.input_wind_u
-        dims = new_input.size()
-        new_input[:, dims[1]//2:, :, :] = np.nan
-        mask_batch = mask_batch._replace(input_wind_u=new_input)
-        new_input = batch.input_wind_v
-        dims = new_input.size()
-        new_input[:, dims[1]//2:, :, :] = np.nan
-        mask_batch = mask_batch._replace(input_wind_v=new_input)
+        # Wind is NOT masked: NWP forecasts provide accurate future wind at 0-6 day leadtimes
         return mask_batch
 
     def mask_batch(self, batch):
