@@ -155,7 +155,7 @@ if os.path.exists(MDT_PATH):
     ds_mdt = standardize_coords(ds_mdt)
     mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
     if mdt_var:
-        ds_mdt = ds_mdt[mdt_var].to_dataset()
+        ds_mdt = ds_mdt[mdt_var]
         if len(mdt_var) == 1 and mdt_var[0] != "mdt":
             ds_mdt = ds_mdt.rename({mdt_var[0]: "mdt"})
     ds_mdt = ds_mdt.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX)).load()
