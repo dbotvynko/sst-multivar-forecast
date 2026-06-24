@@ -1,4 +1,4 @@
-from src.data import XrDataset, BaseDataModule, AugmentedDataset, BaseDataModuleOSE, BaseDataModule_SST, BaseDataModule_SSS, BaseDataModule_SST_SLA_INPUT, BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT
+from src.data import XrDataset, BaseDataModule, AugmentedDataset, BaseDataModuleOSE, BaseDataModule_SST, BaseDataModule_SSS, BaseDataModule_SST_SLA_INPUT, BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT, BaseDataModule_SLA_WIND_INPUT_SLA_OUTPUT
 import numpy as np
 import xarray as xr
 import time
@@ -1002,6 +1002,48 @@ class MovingPatchDataModuleFastRecGPU_SST_SLA_INPUT_SLA_OUTPUT(MovingPatchDataMo
             self.train_ds = AugmentedDataset(self.train_ds, **self.aug_kw)
 
     
+
+
+'''
+    SST + SLA + Wind Input & SST + SLA output
+'''
+class MovingPatchDataModule_SLA_WIND_INPUT_SLA_OUTPUT(BaseDataModule_SLA_WIND_INPUT_SLA_OUTPUT):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def setup(self, stage='test'):
+        post_fn = self.post_fn()
+        self.train_ds = XrDatasetMovingPatch(
+            self.input_da.sel(self.domains['train']), **self.xrds_kw, postpro_fn=post_fn, rand=True
+        )
+        self.val_ds = XrDatasetMovingPatch(
+            self.input_da.sel(self.domains['val']), **self.xrds_kw, postpro_fn=post_fn, rand=False
+        )
+        self.test_ds = XrDatasetMovingPatch(
+            self.input_da.sel(self.domains['test']), **self.xrds_kw, postpro_fn=post_fn, rand=False
+        )
+        if self.aug_kw:
+            self.train_ds = AugmentedDataset(self.train_ds, **self.aug_kw)
+
+
+class MovingPatchDataModuleFastRecGPU_SLA_WIND_INPUT_SLA_OUTPUT(MovingPatchDataModule_SLA_WIND_INPUT_SLA_OUTPUT):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def setup(self, stage='test'):
+        print('Entered MovingPatchDataModuleFastRecGPU Wind')
+        post_fn = self.post_fn()
+        self.train_ds = XrDatasetMovingPatchFastRecGPU(
+            self.input_da.sel(self.domains['train']), **self.xrds_kw, postpro_fn=post_fn, rand=True
+        )
+        self.val_ds = XrDatasetMovingPatchFastRecGPU(
+            self.input_da.sel(self.domains['val']), **self.xrds_kw, postpro_fn=post_fn, rand=False
+        )
+        self.test_ds = XrDatasetMovingPatchFastRecGPU(
+            self.input_da.sel(self.domains['test']), **self.xrds_kw, postpro_fn=post_fn, rand=False
+        )
+        if self.aug_kw:
+            self.train_ds = AugmentedDataset(self.train_ds, **self.aug_kw)
 
 
 '''

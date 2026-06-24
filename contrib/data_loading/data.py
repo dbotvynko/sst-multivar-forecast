@@ -1097,6 +1097,97 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     return ds
 
 
+"""
+    SST + SLA + Wind Input, SLA + SST Output
+"""
+def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, masks_path, full_l4_path, domain, time_domains, variables="sea_surface_temperature", masking=True, test_cut=None, sla_l3_path=None, sla_l4_path=None, wind_path=None):
+    from src.data import TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT
+    print('[SLA_WIND_INOUT] Loading SST...')
+    ds = xr.open_dataset(path, chunks={})[["sst_anomaly"]].sel(time=time_domains)
+    ds['time'] = ds.time.dt.date
+    if 'latitude' in list(ds.dims):
+        ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+
+    if sla_l3_path is None:
+        sla_l3_path = '/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc'
+
+    print(f'[SLA_WIND_INOUT] SLA L3 path: {sla_l3_path}')
+    sla_l3 = (
+        xr.open_dataset(sla_l3_path, chunks={})
+        [["sla_unfiltered"]]
+        .sel(time=ds.time.values)
+    )
+
+    if sla_l4_path is not None:
+        print(f'[SLA_WIND_INOUT] SLA L4 path: {sla_l4_path}')
+        sla_l4 = (
+            xr.open_dataset(sla_l4_path, chunks={})
+            .sel(time=ds.time.values)
+        )
+        if 'latitude' in list(sla_l4.dims):
+            sla_l4 = sla_l4.rename({'latitude': 'lat', 'longitude': 'lon'})
+        sla_var = next((v for v in ['sla', 'zos', 'tgt'] if v in sla_l4), list(sla_l4.data_vars)[0])
+        sla_tgt = sla_l4[[sla_var]].rename({sla_var: 'tgt'})
+    else:
+        sla_tgt = (
+            xr.open_dataset(sla_l3_path, chunks={})
+            [["tgt"]]
+            .sel(time=ds.time.values)
+        )
+
+    print(f'[SLA_WIND_INOUT] Wind path: {wind_path}')
+    wind_ds = xr.open_dataset(wind_path, chunks={})
+    if 'latitude' in list(wind_ds.dims):
+        wind_ds = wind_ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    wind_ds['time'] = wind_ds.time.dt.date
+    wind_ds = wind_ds.sel(time=ds.time.values)
+
+    if test_cut is not None:
+        ds = ds.sel(time=test_cut)
+        sla_l3 = sla_l3.sel(time=test_cut)
+        sla_tgt = sla_tgt.sel(time=test_cut)
+        wind_ds = wind_ds.sel(time=test_cut)
+
+    if not masking:
+        ds = ds.sel(domain)
+        print(f'[SLA_WIND_INOUT] After domain crop: {ds.dims}')
+
+    sla_l3 = sla_l3.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+    sla_tgt = sla_tgt.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+    wind_ds = wind_ds.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+
+    ds = (
+        ds
+        .assign(
+            input=lambda ds: ds["sst_anomaly"],
+            input_sla=lambda ds: sla_l3["sla_unfiltered"],
+            input_wind_u=lambda ds: wind_ds["u10"],
+            input_wind_v=lambda ds: wind_ds["v10"],
+            tgt=lambda ds: ds["sst_anomaly"],
+            tgt_sla=lambda ds: sla_tgt['tgt']
+        )
+        .load()
+    )
+    ds['time'] = ds['time'].astype(str)
+    print("[SLA_WIND_INOUT] ds final")
+    print(ds)
+
+    if masking:
+        with open(masks_path, 'rb') as masks_file:
+            mask_list = pickle.load(masks_file)
+        mask_list = np.array(mask_list)
+        ds = ds.assign(
+            input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
+        )
+        ds = ds.sel(domain)
+    ds = (
+        ds[[*TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._fields]]
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+
+    return ds
+
 
 def load_ose_data_with_tgt_mask_SST_SLA_INOUT(
         path,

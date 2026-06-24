@@ -7,7 +7,7 @@ import kornia.filters as kfilts
 
 from src.models import Lit4dVarNetForecast, GradSolverZero, BilinAEPriorCost, \
     Lit4dVarNetForecast_UNet, Lit4dVarNet_UNet_MLD, Lit4dVarNetForecast_only1leadtime, \
-        Lit4dVarNetForecast_only1leadtime_FineTune_L3, Lit4dVarNetForecast_UNet_MLD, Lit4dVarNetForecast_UNet_sst, Lit4dVarNetForecast_UNet_Swot, Lit4dVarNetForecast_UNet_OSSE, Lit4dVarNetForecast_UNet_sst_and_SLA_Input
+        Lit4dVarNetForecast_only1leadtime_FineTune_L3, Lit4dVarNetForecast_UNet_MLD, Lit4dVarNetForecast_UNet_sst, Lit4dVarNetForecast_UNet_Swot, Lit4dVarNetForecast_UNet_OSSE, Lit4dVarNetForecast_UNet_sst_and_SLA_Input, Lit4dVarNetForecast_UNet_sst_sla_wind_Input
 
 class Plus4dVarNetForecast(Lit4dVarNetForecast):
     """
@@ -982,6 +982,174 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_
                 rec_sla = rec_sla[0]
 
             # merge SST and SLA into a single Dataset
+            ds_sst = sst_das[i].assign_coords(v0=['sst']).to_dataset(dim='v0')
+            ds_sla = rec_sla.assign_coords(v0=['sla']).to_dataset(dim='v0')
+            test_data_leadtime = xr.merge([ds_sst, ds_sla])
+
+            if self.logger:
+                test_data_leadtime.to_netcdf(
+                    Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                )
+                print(Path(self.logger.log_dir) / f'test_data_{i + 14}.nc')
+
+            metric_data = test_data_leadtime.pipe(self.pre_metric_fn)
+            metrics_leadtime = pd.Series({
+                metric_n: metric_fn(metric_data)
+                for metric_n, metric_fn in self.metrics.items()
+            })
+            metrics.append(metrics_leadtime)
+
+        print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
+
+
+'''
+    SST + SLA + Wind Input → SST + SLA Output
+'''
+class Plus4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNetForecast_UNet_sst_sla_wind_Input):
+    def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rec_weight_fn = rec_weight_fn
+        self.output_leadtime_start = output_leadtime_start
+
+    def get_dT(self):
+        return self.rec_weight.size()[0]
+
+    def on_test_epoch_end(self):
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        metrics = []
+        output_start = 0 if self.output_only_forecast else -14
+        if self.output_leadtime_start is not None:
+            output_start = self.output_leadtime_start
+        for i in range(output_start, 7):
+            forecast_weight = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec_da = self.trainer.test_dataloaders.dataset.reconstruct(
+                self.test_data, forecast_weight
+            )
+            if isinstance(rec_da, list):
+                rec_da = rec_da[0]
+            test_data_leadtime = rec_da.assign_coords(
+                dict(v0=self.test_quantities)
+            ).to_dataset(dim='v0')
+            if self.logger:
+                test_data_leadtime.to_netcdf(Path(self.logger.log_dir) / f'test_data_{i + 14}.nc')
+                print(Path(self.logger.log_dir) / f'test_data_{i + 14}.nc')
+            metric_data = test_data_leadtime.pipe(self.pre_metric_fn)
+            metrics_leadtime = pd.Series({
+                metric_n: metric_fn(metric_data)
+                for metric_n, metric_fn in self.metrics.items()
+            })
+            metrics.append(metrics_leadtime)
+        print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
+
+
+class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarNetForecast_UNet_sst_sla_wind_Input):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @property
+    def test_quantities(self):
+        return ['out']
+
+    def clear_gpu_mem(self):
+        del self.solver
+        torch.cuda.empty_cache()
+
+    def step(self, batch, phase=""):
+        if self.training and batch.tgt.isfinite().float().mean() < 0.1:
+            return None, None
+        loss, loss_sla, out = self.base_step(batch, phase)
+        grad_loss = self.weighted_mse(kfilts.sobel(out[:,0]) - kfilts.sobel(batch.tgt), self.rec_weight)
+        grad_loss_sla = self.weighted_mse(kfilts.sobel(out[:,1]) - kfilts.sobel(batch.tgt_sla), self.rec_weight)
+        with torch.no_grad():
+            self.log(f"{phase}_grad_mse", grad_loss * self.norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
+        training_loss = 0.6 * loss + 0.6 * loss_sla + 0.4 * grad_loss + 0.4 * grad_loss_sla
+        return training_loss, out
+
+    def base_step(self, batch, phase=""):
+        out = self(batch=batch)
+        out = out.view(out.size()[0], 2, 29, *out.size()[-2:])
+        loss = self.weighted_mse(out[:,0] - batch.tgt, self.rec_weight)
+        loss_sla = self.weighted_mse(out[:, 1] - batch.tgt_sla, self.rec_weight)
+        with torch.no_grad():
+            self.log(f"{phase}_mse", loss * self.norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
+            self.log(f"{phase}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        return loss, loss_sla, out
+
+    def on_test_epoch_end(self):
+        self.clear_gpu_mem()
+        self.test_data = torch.cat(self.test_data).cuda()
+        super().on_test_epoch_end()
+
+    def test_step(self, batch, batch_idx):
+        mask_batch = self.mask_batch(batch)
+        if batch_idx == 0:
+            self.test_data = []
+        out = self(batch=mask_batch)
+        m, s = self.norm_stats
+        self.test_data.append(torch.stack(
+            [out.squeeze(dim=-1).detach().cpu() * s + m],
+            dim=1,
+        ))
+
+
+class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INOUT(Plus4dVarNetForecast_UNet_sst_sla_wind_Input):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def clear_gpu_mem(self):
+        del self.solver
+        torch.cuda.empty_cache()
+
+    def test_step(self, batch, batch_idx):
+        mask_batch = self.mask_batch(batch)
+        if batch_idx == 0:
+            self.test_data_sst = []
+            self.test_data_sla = []
+        out = self(batch=mask_batch)
+
+        dm = self.trainer.datamodule
+        if hasattr(dm, 'norm_stats_per_var') and dm.normalize_per_var:
+            m_sst, s_sst = dm.norm_stats_per_var()['tgt']
+            m_sla, s_sla = dm.norm_stats_per_var()['tgt_sla']
+        else:
+            m_sst, s_sst = self.norm_stats
+            m_sla, s_sla = m_sst, s_sst
+
+        out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1)).detach().cpu()
+        out_sst = out_2var[:, 0:1] * s_sst + m_sst
+        out_sla = out_2var[:, 1:2] * s_sla + m_sla
+        self.test_data_sst.append(out_sst)
+        self.test_data_sla.append(out_sla)
+
+    def on_test_epoch_end(self):
+        self.clear_gpu_mem()
+
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        output_start = 0 if self.output_only_forecast else -14
+        if self.output_leadtime_start is not None:
+            output_start = self.output_leadtime_start
+
+        test_data_sst = torch.cat(self.test_data_sst).cuda()
+        sst_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sst, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+            sst_das[i] = rec
+        del test_data_sst
+        torch.cuda.empty_cache()
+
+        test_data_sla = torch.cat(self.test_data_sla).cuda()
+        metrics = []
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec_sla = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sla, fw)
+            if isinstance(rec_sla, list):
+                rec_sla = rec_sla[0]
+
             ds_sst = sst_das[i].assign_coords(v0=['sst']).to_dataset(dim='v0')
             ds_sla = rec_sla.assign_coords(v0=['sla']).to_dataset(dim='v0')
             test_data_leadtime = xr.merge([ds_sst, ds_sla])

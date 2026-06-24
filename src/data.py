@@ -14,6 +14,7 @@ TrainingItem_sst = namedtuple('TrainingItem_sst', ['input', 'latlon', 'tgt', 'ss
 TrainingItem_LatLon = namedtuple('TrainingItem_LatLon', ['input', 'latlon', 'var_sst', 'tgt'])
 TrainingItem_SLA_INPUT = namedtuple('TrainingItem_SLA_INPUT', ['input', 'input_sla', 'tgt'])
 TrainingItem_SLA_INPUT_SLA_OUTPUT = namedtuple('TrainingItem_SLA_INPUT_SLA_OUTPUT', ['input', 'input_sla', 'tgt', 'tgt_sla'])
+TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT = namedtuple('TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT', ['input', 'input_sla', 'input_wind_u', 'input_wind_v', 'tgt', 'tgt_sla'])
 
 class IncompleteScanConfiguration(Exception):
     pass
@@ -589,6 +590,112 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         return torch.utils.data.DataLoader(self.test_ds, shuffle=False, **self.dl_kw)
 
 
+
+
+'''
+    SST + SLA + Wind input, SST + SLA output
+'''
+class BaseDataModule_SLA_WIND_INPUT_SLA_OUTPUT(pl.LightningDataModule):
+    def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None,
+                 normalize_per_var=False, norm_stats_per_var=None, stats_save_path=None,
+                 **kwargs):
+        super().__init__()
+        self.input_da = input_da
+        self.domains = domains
+        self.xrds_kw = xrds_kw
+        self.dl_kw = dl_kw
+        self.aug_kw = aug_kw if aug_kw is not None else {}
+        self._norm_stats = norm_stats
+        self.normalize_per_var = normalize_per_var
+        self.stats_save_path = stats_save_path
+
+        self.train_ds = None
+        self.val_ds = None
+        self.test_ds = None
+        self._post_fn = None
+        if norm_stats_per_var is not None:
+            self._norm_stats_per_var = {
+                k: tuple(v) for k, v in norm_stats_per_var.items()
+            }
+        else:
+            self._norm_stats_per_var = None
+
+    def norm_stats(self):
+        if self._norm_stats is None:
+            self._norm_stats = self.train_mean_std()
+            print("Norm stats (SST)", self._norm_stats)
+        return self._norm_stats
+
+    def norm_stats_per_var(self):
+        if self._norm_stats_per_var is None:
+            self._norm_stats_per_var = self._compute_per_var_stats()
+        return self._norm_stats_per_var
+
+    def train_mean_std(self, variable='tgt'):
+        train_data = self.input_da.sel(self.xrds_kw.get('domain_limits', {})).sel(self.domains['train'])
+        return train_data.sel(variable=variable).pipe(lambda da: (da.mean(skipna=True).values.item(), da.std(skipna=True).values.item()))
+
+    def _compute_per_var_stats(self):
+        import json, os
+        train_data = self.input_da.sel(self.xrds_kw.get('domain_limits', {})).sel(self.domains['train'])
+        stats = {}
+        for var in ['input', 'input_sla', 'input_wind_u', 'input_wind_v', 'tgt', 'tgt_sla']:
+            da = train_data.sel(variable=var)
+            m = float(da.mean(skipna=True).values)
+            s = float(da.std(skipna=True).values)
+            stats[var] = (m, s)
+            print(f"  Per-var norm  {var:12s}: mean={m:.6f}  std={s:.6f}")
+        self._norm_stats = stats['tgt']
+        save_path = self.stats_save_path or 'norm_stats_per_var.json'
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        with open(save_path, 'w') as f:
+            json.dump({k: list(v) for k, v in stats.items()}, f, indent=2)
+        print(f"  Per-var norm stats saved to: {save_path}")
+        return stats
+
+    def post_fn(self):
+        if self.normalize_per_var:
+            stats = self.norm_stats_per_var()
+            def make_normalize(m, s):
+                return lambda item: (item - m) / s
+            norm_input      = make_normalize(*stats['input'])
+            norm_input_sla  = make_normalize(*stats['input_sla'])
+            norm_input_wu   = make_normalize(*stats['input_wind_u'])
+            norm_input_wv   = make_normalize(*stats['input_wind_v'])
+            norm_tgt        = make_normalize(*stats['tgt'])
+            norm_tgt_sla    = make_normalize(*stats['tgt_sla'])
+        else:
+            m, s = self.norm_stats()
+            def _norm(item): return (item - m) / s
+            norm_input = norm_input_sla = norm_input_wu = norm_input_wv = norm_tgt = norm_tgt_sla = _norm
+
+        return ft.partial(ft.reduce, lambda i, f: f(i), [
+            TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._make,
+            lambda item: item._replace(tgt=norm_tgt(item.tgt)),
+            lambda item: item._replace(tgt_sla=norm_tgt_sla(item.tgt_sla)),
+            lambda item: item._replace(input=norm_input(item.input)),
+            lambda item: item._replace(input_sla=norm_input_sla(item.input_sla)),
+            lambda item: item._replace(input_wind_u=norm_input_wu(item.input_wind_u)),
+            lambda item: item._replace(input_wind_v=norm_input_wv(item.input_wind_v)),
+        ])
+
+    def setup(self, stage='test'):
+        train_data = self.input_da.sel(self.domains['train'])
+        post_fn = self.post_fn()
+        self.train_ds = XrDataset(train_data, **self.xrds_kw, postpro_fn=post_fn)
+        if self.aug_kw:
+            self.train_ds = AugmentedDataset(self.train_ds, **self.aug_kw)
+        self.val_ds = XrDataset(self.input_da.sel(self.domains['val']), **self.xrds_kw, postpro_fn=post_fn)
+        self.test_ds = XrDataset(self.input_da.sel(self.domains['test']), **self.xrds_kw, postpro_fn=post_fn)
+
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(self.train_ds, shuffle=True, **self.dl_kw)
+
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(self.val_ds, shuffle=False, **self.dl_kw)
+
+    def test_dataloader(self):
+        return torch.utils.data.DataLoader(self.test_ds, shuffle=False, **self.dl_kw)
 
 
 '''
