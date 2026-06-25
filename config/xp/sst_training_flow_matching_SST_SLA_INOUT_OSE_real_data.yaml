@@ -106,7 +106,7 @@ model:
   n_inference_steps: 10
   persist_rw: False
   opt_fn:
-    _target_: src.utils.cosanneal_lr_adam_UNet
+    _target_: src.utils.cosanneal_lr_adam_flow_matching
     _partial_: true
     lr: 5e-4
     T_max: ${trainer.max_epochs}

@@ -175,7 +175,7 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         self.test_data_sla.append(out_sla)
 
     def configure_optimizers(self):
-        return self._opt_fn(self.velocity_net.parameters())
+        return self._opt_fn(self)
 
     def forward(self, batch):
         batch = self._mask_future(batch)
