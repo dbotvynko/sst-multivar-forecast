@@ -131,7 +131,7 @@ class FlowMatchingVelocityUNet(nn.Module):
 
         self.up1 = UpTime(1024, 512 // factor, time_dim, bilinear, sf=sfs[5])
         self.up2 = UpTime(512, 256 // factor, time_dim, bilinear, sf=sfs[6])
-        self.up3 = UpTime(256, 128, time_dim, bilinear, sf=sfs[7])
+        self.up3 = UpTime(256, 128 // factor, time_dim, bilinear, sf=sfs[7])
         self.up4 = UpTime(128, 64, time_dim, bilinear, sf=sfs[8])
         self.outc = OutConv(64, n_output_channels)
 
