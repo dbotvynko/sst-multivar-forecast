@@ -27,7 +27,7 @@ ds_sst = ds_sst.interp(lon=target_lon, lat=target_lat, method="linear")
 
 # --- UGOS / VGOS ---
 print("UGOS/VGOS...")
-ds_uv = xr.open_dataset("/Odyssey/public/glorys/rec/evaluation/all_365_days_UNet_sla_real_data_training_2017_2022_GEOS_velocities_leadtime_00.nc")
+ds_uv = xr.open_dataset("/Odyssey/private/d21botvy/FORECAST/2023a_SSH_mapping_OSE/ssh_2023_Pierre_GLO12/2023a_SSH_mapping_OSE/nb_diags_global/UNet_sla_real_data_training_Nadir_filt_DUACS_losses_2017-2022_all_days_GEOS_velocities_leadtime_0.nc")
 ds_uv = ds_uv.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
 ds_uv = ds_uv.interp(lon=target_lon, lat=target_lat, method="linear")
 
