@@ -1,20 +1,20 @@
 """
-Téléchargement et fusion des forecasts GLO12 (GLORYS12) 2023 — zone NATL
+Fusion des forecasts GLO12 (GLORYS12) 2023 — zone NATL
 Source : CMEMS global ocean physics (1/12° ~ 0.083°)
 
 Variables téléchargées via CMEMS :
   - SST (thetao, depth=0)
-  - SSS (so, depth=0)
   - SSH (zos)
   - Courants (uo, vo, depth=0)
 
 Variables réutilisées depuis fichiers existants :
-  - MDT (CNES_CLS22)
-  - BATHY (glorys bathymetry)
+  - SSS : /Odyssey/public/glorys/reanalysis/...so...2023.nc
+  - MDT : GLO12 Mercator MDT
+  - BATHY : glorys bathymetry
 
 Tout est régriddé à 0.25° sur la zone NATL.
 
-Prérequis : pip install copernicusmarine xarray gsw scipy netCDF4
+Prérequis : pip install copernicusmarine xarray scipy netCDF4
             copernicusmarine login
 """
 
@@ -39,15 +39,16 @@ TARGET_RES = 0.25
 START_DATE = "2023-01-01"
 END_DATE = "2023-12-31"
 
-# Fichiers statiques (réutilisés)
-MDT_PATH = "/Odyssey/public/mean_dynamic_topography/CNES_CLS22.nc"
+# Fichiers existants
+SSS_PATH = "/Odyssey/public/glorys/reanalysis/cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m_so_180.00W-179.92E_80.00S-90.00N_0.49m_2023-01-01-2023-12-31.nc"
+MDT_PATH = "/Odyssey/public/glorys/MDT_Mercator/cmems_mod_glo_phy_my_0.083deg_static_mdt_180.00W-179.92E_80.00S-90.00N.nc"
 BATHY_PATH = "/Odyssey/public/glorys/bathymetry/bathymetry.nc"
 
 target_lon = np.arange(LON_MIN, LON_MAX + TARGET_RES, TARGET_RES)
 target_lat = np.arange(LAT_MIN, LAT_MAX + TARGET_RES, TARGET_RES)
 
 # =============================================================================
-# 1. TÉLÉCHARGEMENT VIA CMEMS (croppé directement sur la zone NATL)
+# 1. TÉLÉCHARGEMENT VIA CMEMS (SST, SSH, courants)
 # =============================================================================
 print("=" * 60)
 print("1. Téléchargement GLO12 — zone NATL")
@@ -59,12 +60,6 @@ CMEMS_DOWNLOADS = {
         "variables": ["thetao"],
         "depth": True,
         "file": f"{OUTPUT_DIR}/glo12_sst_2023_natl.nc",
-    },
-    "sss": {
-        "dataset_id": "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m",
-        "variables": ["so"],
-        "depth": True,
-        "file": f"{OUTPUT_DIR}/glo12_sss_2023_natl.nc",
     },
     "ssh": {
         "dataset_id": "cmems_mod_glo_phy_anfc_0.083deg_P1D-m",
@@ -132,13 +127,7 @@ if os.path.exists(CMEMS_DOWNLOADS["sst"]["file"]):
     ds = ds.rename({"thetao": "sst"})
     datasets.append(ds)
 
-# SSS (so -> sss)
-if os.path.exists(CMEMS_DOWNLOADS["sss"]["file"]):
-    ds = load_and_regrid(CMEMS_DOWNLOADS["sss"]["file"], "SSS")
-    ds = ds.rename({"so": "sss"})
-    datasets.append(ds)
-
-# SSH (zos -> ssh_glo12)
+# SSH (zos -> ssh)
 if os.path.exists(CMEMS_DOWNLOADS["ssh"]["file"]):
     ds = load_and_regrid(CMEMS_DOWNLOADS["ssh"]["file"], "SSH")
     ds = ds.rename({"zos": "ssh"})
@@ -149,22 +138,37 @@ if os.path.exists(CMEMS_DOWNLOADS["currents"]["file"]):
     ds = load_and_regrid(CMEMS_DOWNLOADS["currents"]["file"], "Courants")
     datasets.append(ds)
 
-# MDT (statique)
-print("  MDT (statique)...")
+# SSS (fichier existant, global -> crop NATL)
+print("  SSS (fichier existant)...")
+ds_sss = xr.open_dataset(SSS_PATH)
+if "latitude" in ds_sss.dims:
+    ds_sss = ds_sss.rename({"latitude": "lat", "longitude": "lon"})
+if "depth" in ds_sss.dims:
+    ds_sss = ds_sss.squeeze("depth", drop=True)
+if "so" in ds_sss:
+    ds_sss = ds_sss.rename({"so": "sss"})
+ds_sss = ds_sss.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
+ds_sss = ds_sss.interp(lon=target_lon, lat=target_lat, method="linear").load()
+datasets.append(ds_sss)
+print(f"  SSS -> {list(ds_sss.data_vars)}")
+
+# MDT (GLO12 Mercator, statique)
+print("  MDT (GLO12 Mercator)...")
 ds_mdt = xr.open_dataset(MDT_PATH)
 if "latitude" in ds_mdt.dims:
     ds_mdt = ds_mdt.rename({"latitude": "lat", "longitude": "lon"})
-mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
-if mdt_var:
-    ds_mdt = ds_mdt[mdt_var]
-    if mdt_var[0] != "mdt":
-        ds_mdt = ds_mdt.rename({mdt_var[0]: "mdt"})
+if "mdt" in ds_mdt:
+    ds_mdt = ds_mdt[["mdt"]]
+else:
+    mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
+    if mdt_var:
+        ds_mdt = ds_mdt[[mdt_var[0]]].rename({mdt_var[0]: "mdt"})
 ds_mdt = ds_mdt.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
 ds_mdt = ds_mdt.interp(lon=target_lon, lat=target_lat, method="linear").load()
 datasets.append(ds_mdt)
 print(f"  MDT -> {list(ds_mdt.data_vars)}")
 
-# BATHY (statique)
+# BATHY (statique, réutilisé)
 print("  BATHY (statique)...")
 ds_bathy = xr.open_dataset(BATHY_PATH)
 if "latitude" in ds_bathy.dims:
