@@ -38,11 +38,12 @@ print("MDT...")
 ds_mdt = xr.open_dataset("/Odyssey/public/mean_dynamic_topography/CNES_CLS22.nc")
 if "latitude" in ds_mdt.dims:
     ds_mdt = ds_mdt.rename({"latitude": "lat", "longitude": "lon"})
-mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
-if mdt_var:
-    ds_mdt = ds_mdt[mdt_var]
-    if mdt_var[0] != "mdt":
-        ds_mdt = ds_mdt.rename({mdt_var[0]: "mdt"})
+if "mdt" in ds_mdt:
+    ds_mdt = ds_mdt[["mdt"]]
+else:
+    mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
+    if mdt_var:
+        ds_mdt = ds_mdt[[mdt_var[0]]].rename({mdt_var[0]: "mdt"})
 ds_mdt = ds_mdt.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
 ds_mdt = ds_mdt.interp(lon=target_lon, lat=target_lat, method="linear")
 
