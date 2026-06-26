@@ -91,6 +91,11 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         x_0 = x_0.view(x_0.size(0), -1, x_0.size(-2), x_0.size(-1))
         x_1 = x_1.view(x_1.size(0), -1, x_1.size(-2), x_1.size(-1))
 
+        # mask for valid (non-NaN) pixels in both x_0 and x_1
+        valid = torch.isfinite(x_0) & torch.isfinite(x_1)
+        x_0 = torch.nan_to_num(x_0)
+        x_1 = torch.nan_to_num(x_1)
+
         # condition: past observations [B, 58, H, W]
         condition = self._get_condition(batch)
 
@@ -107,7 +112,8 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         # predict velocity
         v_pred = self.velocity_net(x_t, t, condition)
 
-        loss = F.mse_loss(v_pred, u)
+        # masked MSE loss: only on valid pixels
+        loss = (valid * (v_pred - u) ** 2).sum() / valid.sum().clamp(min=1)
 
         self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
         if self.norm_stats is not None:
@@ -123,12 +129,17 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         x_1 = self._get_target(batch)
         x_0 = x_0.view(x_0.size(0), -1, x_0.size(-2), x_0.size(-1))
         x_1 = x_1.view(x_1.size(0), -1, x_1.size(-2), x_1.size(-1))
+
+        valid = torch.isfinite(x_0) & torch.isfinite(x_1)
+        x_0 = torch.nan_to_num(x_0)
+        x_1 = torch.nan_to_num(x_1)
+
         condition = self._get_condition(batch)
 
         # evaluate with Euler integration
         x_refined = self._euler_integrate(x_0, condition)
 
-        loss = F.mse_loss(x_refined, x_1)
+        loss = (valid * (x_refined - x_1) ** 2).sum() / valid.sum().clamp(min=1)
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
         if self.norm_stats is not None:
             m, s = self.norm_stats
