@@ -50,7 +50,7 @@ ATMO_MONTHS = sorted(
 # --- Fichiers sources (SLA, SST, UGOS/VGOS, MDT, BATHY) ----------------------
 SLA_PATH = "/Odyssey/public/glorys/rec/glorys4_global_1patch_SLA_UNet_Filtered_OSE_DUACS_losses_2017-2022/nrt_sla/test_data_14.nc"
 SST_PATH = "/Odyssey/public/glorys/rec/glorys4_global_1patch_SST_ODYSSEA_UNet_L3_NRT_AnomalyCLIMATO_2010_2019_NormStatsImposed_MSEGradLoss_pyresample_0.25degL3_INPUT_INFRARED_FLAGGED_5_SLA_grid_SLA_INPUT_src_CORRECTED/nrt_sla/ABSOLUTE_SST/test_data_14.nc"
-UGOS_VGOS_PATH = "/Odyssey/public/glorys/rec/evaluation/all_365_days_UNet_sla_real_data_training_2017_2022_GEOS_velocities_leadtime_00.nc"
+UGOS_VGOS_PATH = "/Odyssey/private/d21botvy/FORECAST/2023a_SSH_mapping_OSE/ssh_2023_Pierre_GLO12/2023a_SSH_mapping_OSE/nb_diags_global/UNet_sla_real_data_training_Nadir_filt_DUACS_losses_2017-2022_all_days_GEOS_velocities_leadtime_0.nc"
 MDT_PATH = "/Odyssey/public/mean_dynamic_topography/CNES_CLS22.nc"
 BATHY_PATH = "/Odyssey/public/glorys/bathymetry/bathymetry.nc"
 
