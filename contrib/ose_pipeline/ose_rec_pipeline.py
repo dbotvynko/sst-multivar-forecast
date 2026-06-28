@@ -287,6 +287,82 @@ def execute_rec_pipeline_SST_SLA_INOUT(
     reconstruct_from_config(config, rec_path, xp_name, data_name, model_ckpt_path)
     print('done\n' + '-' * 60)
 
+
+def setup_model_config_SST_SLA_INOUT_with_inputs(
+        model_config_path,
+        gridded_input_path,
+        sla_input_path,
+        tgt_sla_path,
+        rec_paths,
+        min_time,
+        max_time,
+        min_time_offseted,
+        max_time_offseted,
+        overwrite,
+        leadtime_start_override=-1,
+):
+    """
+    Same as setup_model_config_SST_SLA_INOUT but forces
+    output_leadtime_start to include j-1 (leadtime -1).
+    """
+    config = setup_model_config_SST_SLA_INOUT(
+        model_config_path=model_config_path,
+        gridded_input_path=gridded_input_path,
+        sla_input_path=sla_input_path,
+        tgt_sla_path=tgt_sla_path,
+        rec_paths=rec_paths,
+        min_time=min_time,
+        max_time=max_time,
+        min_time_offseted=min_time_offseted,
+        max_time_offseted=max_time_offseted,
+        overwrite=overwrite,
+    )
+    OmegaConf.update(config, key='model.output_leadtime_start', value=leadtime_start_override)
+    return config
+
+
+def execute_rec_pipeline_SST_SLA_INOUT_with_inputs(
+        model_config_path,
+        model_ckpt_path,
+        rec_path,
+        rec_paths,
+        xp_name,
+        data_name,
+        gridded_input_path,
+        sla_input_path,
+        tgt_sla_path,
+        min_time,
+        max_time,
+        min_time_offseted,
+        max_time_offseted,
+        overwrite,
+):
+    print('-' * 60 + '\n' + '-' * 60 + '\nRECONSTRUCTION PIPELINE (SST+SLA INOUT WITH INPUTS) START:\n')
+
+    print('setting up model config')
+    try:
+        config = setup_model_config_SST_SLA_INOUT_with_inputs(
+            model_config_path=model_config_path,
+            gridded_input_path=gridded_input_path,
+            sla_input_path=sla_input_path,
+            tgt_sla_path=tgt_sla_path,
+            rec_paths=rec_paths,
+            min_time=min_time,
+            max_time=max_time,
+            min_time_offseted=min_time_offseted,
+            max_time_offseted=max_time_offseted,
+            overwrite=overwrite,
+        )
+    except AllLeadtimesReconstructed:
+        print('all leadtimes already reconstructed\n' + '-' * 60)
+        return
+
+    print('done\n' + '-' * 60)
+
+    print('SST+SLA INOUT with inputs reconstruction starting')
+    reconstruct_from_config(config, rec_path, xp_name, data_name, model_ckpt_path)
+    print('done\n' + '-' * 60)
+
     print('RECONSTRUCTION PIPELINE (SST+SLA INOUT) END:\n' + '-' * 60 + '\n' + '-' * 60)
 
 

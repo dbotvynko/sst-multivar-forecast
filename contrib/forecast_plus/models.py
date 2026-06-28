@@ -1002,6 +1002,144 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT(Plus4dVarNetForecast_UNet_
         print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
 
 
+class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT_WithInputs(Plus4dVarNetForecast_UNet_sst_and_SLA_Input):
+    """
+    Same as Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INOUT but also saves
+    raw SST and SLA inputs alongside model outputs.
+
+    Output per leadtime i:
+      test_data_{i+14}.nc       — model output (sst, sla)
+      test_data_input_{i+14}.nc — raw input observations (sst_input, sla_input)
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def clear_gpu_mem(self):
+        del self.solver
+        torch.cuda.empty_cache()
+
+    def test_step(self, batch, batch_idx):
+        mask_batch = self.mask_batch(batch)
+        if batch_idx == 0:
+            self.test_data_sst = []
+            self.test_data_sla = []
+            self.test_data_input_sst = []
+            self.test_data_input_sla = []
+        out = self(batch=mask_batch)
+
+        dm = self.trainer.datamodule
+        if hasattr(dm, 'norm_stats_per_var') and dm.normalize_per_var:
+            m_sst, s_sst = dm.norm_stats_per_var()['tgt']
+            m_sla, s_sla = dm.norm_stats_per_var()['tgt_sla']
+            m_inp, s_inp = dm.norm_stats_per_var()['input']
+            m_inp_sla, s_inp_sla = dm.norm_stats_per_var()['input_sla']
+        else:
+            m_sst, s_sst = self.norm_stats
+            m_sla, s_sla = m_sst, s_sst
+            m_inp, s_inp = m_sst, s_sst
+            m_inp_sla, s_inp_sla = m_sla, s_sla
+
+        out_2var = out.view(out.size(0), 2, 29, out.size(-2), out.size(-1)).detach().cpu()
+        out_sst = out_2var[:, 0:1] * s_sst + m_sst
+        out_sla = out_2var[:, 1:2] * s_sla + m_sla
+        self.test_data_sst.append(out_sst)
+        self.test_data_sla.append(out_sla)
+
+        inp_sst = torch.nan_to_num(batch.input).detach().cpu().unsqueeze(1) * s_inp + m_inp
+        inp_sla = torch.nan_to_num(batch.input_sla).detach().cpu().unsqueeze(1) * s_inp_sla + m_inp_sla
+        self.test_data_input_sst.append(inp_sst)
+        self.test_data_input_sla.append(inp_sla)
+
+    def on_test_epoch_end(self):
+        self.clear_gpu_mem()
+
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        output_start = 0 if self.output_only_forecast else -14
+        if self.output_leadtime_start is not None:
+            output_start = self.output_leadtime_start
+
+        # ── Output SST reconstruction ──
+        test_data_sst = torch.cat(self.test_data_sst).cuda()
+        sst_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sst, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+            sst_das[i] = rec
+        del test_data_sst
+        torch.cuda.empty_cache()
+
+        # ── Output SLA reconstruction ──
+        test_data_sla = torch.cat(self.test_data_sla).cuda()
+        sla_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec_sla = self.trainer.test_dataloaders.dataset.reconstruct(test_data_sla, fw)
+            if isinstance(rec_sla, list):
+                rec_sla = rec_sla[0]
+            sla_das[i] = rec_sla
+        del test_data_sla
+        torch.cuda.empty_cache()
+
+        # ── Input SST reconstruction ──
+        test_data_input_sst = torch.cat(self.test_data_input_sst).cuda()
+        inp_sst_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_input_sst, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+            inp_sst_das[i] = rec
+        del test_data_input_sst
+        torch.cuda.empty_cache()
+
+        # ── Input SLA reconstruction ──
+        test_data_input_sla = torch.cat(self.test_data_input_sla).cuda()
+        inp_sla_das = {}
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_input_sla, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+            inp_sla_das[i] = rec
+        del test_data_input_sla
+        torch.cuda.empty_cache()
+
+        # ── Save outputs and inputs per leadtime ──
+        metrics = []
+        for i in range(output_start, 7):
+            ds_sst = sst_das[i].assign_coords(v0=['sst']).to_dataset(dim='v0')
+            ds_sla = sla_das[i].assign_coords(v0=['sla']).to_dataset(dim='v0')
+            test_data_leadtime = xr.merge([ds_sst, ds_sla])
+
+            ds_inp_sst = inp_sst_das[i].assign_coords(v0=['sst_input']).to_dataset(dim='v0')
+            ds_inp_sla = inp_sla_das[i].assign_coords(v0=['sla_input']).to_dataset(dim='v0')
+            test_data_input = xr.merge([ds_inp_sst, ds_inp_sla])
+
+            if self.logger:
+                test_data_leadtime.to_netcdf(
+                    Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                )
+                test_data_input.to_netcdf(
+                    Path(self.logger.log_dir) / f'test_data_input_{i + 14}.nc'
+                )
+                print(Path(self.logger.log_dir) / f'test_data_{i + 14}.nc')
+                print(Path(self.logger.log_dir) / f'test_data_input_{i + 14}.nc')
+
+            if self.pre_metric_fn is not None:
+                metric_data = test_data_leadtime.pipe(self.pre_metric_fn)
+                metrics_leadtime = pd.Series({
+                    metric_n: metric_fn(metric_data)
+                    for metric_n, metric_fn in self.metrics.items()
+                })
+                metrics.append(metrics_leadtime)
+
+        if metrics:
+            print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
+
+
 '''
     SST + SLA + Wind Input → SST + SLA Output
 '''
