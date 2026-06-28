@@ -110,15 +110,22 @@ for key, cfg in LEADTIMES.items():
 
     output_file = f"{OUTPUT_DIR}/merged_natl_2023_025deg_{key}.nc"
 
-    # --- SLA ---
+    # --- SLA + SST (same file may contain both) ---
     print("  SLA...")
     sla_path = os.path.join(BASE_DIR, cfg["file_idx"])
-    ds_sla = xr.open_dataset(sla_path).rename({"out": "sla"})
+    ds_main = xr.open_dataset(sla_path)
+    if "out" in ds_main:
+        ds_main = ds_main.rename({"out": "sla"})
+    ds_sla = ds_main[["sla"]] if "sla" in ds_main else ds_main
 
-    # --- SST ---
     print("  SST...")
-    sst_path = os.path.join(BASE_DIR, "ABSOLUTE_SST", cfg["file_idx"])
-    ds_sst = xr.open_dataset(sst_path).rename({"out": "sst"})
+    if "sst" in ds_main:
+        ds_sst = ds_main[["sst"]]
+    else:
+        sst_path = os.path.join(BASE_DIR, "ABSOLUTE_SST", cfg["file_idx"])
+        ds_sst = xr.open_dataset(sst_path)
+        if "out" in ds_sst:
+            ds_sst = ds_sst.rename({"out": "sst"})
     if float(ds_sst["sst"].mean()) > 200:
         ds_sst["sst"] = ds_sst["sst"] - 273.15
 
