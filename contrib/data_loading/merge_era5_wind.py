@@ -57,6 +57,12 @@ def main():
 
     print('Opening all merged monthly files lazily...')
     ds = xr.open_mfdataset(merged_monthly, combine='by_coords')
+
+    if 'valid_time' in ds.dims:
+        ds = ds.rename({'valid_time': 'time'})
+    if 'number' in ds:
+        ds = ds.drop_vars('number')
+
     ds = ds.sortby('time')
 
     print('Writing final merged file...')
