@@ -5,8 +5,8 @@ The CDS API delivers each month as a ZIP containing two separate files:
   - 10m_u_component_of_wind_stream-oper_daily-mean.nc
   - 10m_v_component_of_wind_0_daily-mean.nc
 
-This script unzips each month to a temp directory, merges u10 and v10,
-then concatenates all months into one file.
+This script unzips each month to a temp directory, saves a proper
+per-month NetCDF, then uses open_mfdataset to lazily merge all months.
 
 Usage:
     python contrib/data_loading/merge_era5_wind.py \
@@ -28,11 +28,20 @@ def main():
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
+    tmp_dir = input_dir / '_tmp_merged'
+    tmp_dir.mkdir(exist_ok=True)
+
     zip_files = sorted(input_dir.glob('era5_10m_wind_daily_*.nc'))
     print(f'Found {len(zip_files)} monthly ZIP files')
 
-    monthly_datasets = []
+    merged_monthly = []
     for zf in zip_files:
+        out_monthly = tmp_dir / f'merged_{zf.stem}.nc'
+        if out_monthly.exists():
+            print(f'  {zf.name}: already merged, skipping')
+            merged_monthly.append(out_monthly)
+            continue
+
         print(f'Processing {zf.name}...')
         with tempfile.TemporaryDirectory() as tmpdir:
             with zipfile.ZipFile(zf, 'r') as z:
@@ -40,18 +49,26 @@ def main():
 
             nc_files = list(Path(tmpdir).glob('*.nc'))
             ds = xr.open_mfdataset(nc_files, combine='by_coords')
-            monthly_datasets.append(ds.load())
+            if 'latitude' in ds.dims:
+                ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+            ds.load().astype(np.float32).to_netcdf(out_monthly)
 
-    print('Concatenating all months...')
-    merged = xr.concat(monthly_datasets, dim='time').sortby('time')
+        merged_monthly.append(out_monthly)
 
-    if 'latitude' in merged.dims:
-        merged = merged.rename({'latitude': 'lat', 'longitude': 'lon'})
+    print('Opening all merged monthly files lazily...')
+    ds = xr.open_mfdataset(merged_monthly, combine='by_coords')
+    ds = ds.sortby('time')
 
-    merged = merged.astype(np.float32)
-    merged.to_netcdf(args.output)
+    print('Writing final merged file...')
+    ds.to_netcdf(args.output)
     print(f'Saved to {args.output}')
-    print(merged)
+    print(ds)
+
+    print('Cleaning up temp files...')
+    for f in merged_monthly:
+        f.unlink()
+    tmp_dir.rmdir()
+    print('Done!')
 
 
 if __name__ == '__main__':
