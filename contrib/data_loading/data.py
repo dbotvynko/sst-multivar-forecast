@@ -1291,6 +1291,100 @@ def load_ose_data_with_tgt_mask_SST_SLA_INOUT(
     )
 
 
+def load_ose_data_with_tgt_mask_SST_SLA_WIND_INOUT(
+        path,
+        tgt_path,
+        tgt_path_not_glorys,
+        tgt_path_l3_data,
+        sla_input_path,
+        tgt_sla_path,
+        wind_path,
+        variable,
+        year,
+):
+    """
+    Load SST + SLA + Wind data for OSE inference with SST+SLA outputs.
+    Same as load_ose_data_with_tgt_mask_SST_SLA_INOUT but adds wind (u10, v10).
+    """
+    from src.data import TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT
+
+    if len(tgt_path_not_glorys) != 0:
+        tgt_path = tgt_path_not_glorys
+    if len(tgt_path_l3_data) != 0:
+        path = tgt_path_l3_data
+
+    print(f'[SST_SLA_WIND_INOUT] SST input path : {path}')
+    print(f'[SST_SLA_WIND_INOUT] SST tgt path   : {tgt_path}')
+    print(f'[SST_SLA_WIND_INOUT] SLA input path : {sla_input_path}')
+    print(f'[SST_SLA_WIND_INOUT] SLA tgt path   : {tgt_sla_path}')
+    print(f'[SST_SLA_WIND_INOUT] Wind path      : {wind_path}')
+
+    ds = xr.open_dataset(path)
+    ds_sst_ref = xr.open_dataset(tgt_path)
+    ds_sla = xr.open_dataset(sla_input_path)
+    ds_sla_ref = xr.open_dataset(tgt_sla_path)
+    wind_ds = xr.open_dataset(wind_path)
+
+    for dset in [ds, ds_sst_ref, ds_sla, ds_sla_ref, wind_ds]:
+        if 'latitude' in list(dset.dims):
+            dset = dset.rename({'latitude': 'lat', 'longitude': 'lon'})
+
+    if 'latitude' in list(ds_sst_ref.dims):
+        ds_sst_ref = ds_sst_ref.rename({'latitude': 'lat', 'longitude': 'lon'})
+    if 'latitude' in list(wind_ds.dims):
+        wind_ds = wind_ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    if 'thetao' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'thetao': variable})
+    if 'analysed_sst' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'analysed_sst': variable})
+    if 'sla' in list(ds_sst_ref.variables):
+        ds_sst_ref = ds_sst_ref.rename({'sla': variable})
+    if 'analysed_sst' in list(ds.variables):
+        ds = ds.rename({'analysed_sst': variable})
+
+    ds['time'] = pd.to_datetime(ds['time'].values)
+    ds = ds.sel(time=ds['time'].dt.year == year)
+
+    tgt_sst = ds.sel(time=str(year) + '-01-20')[variable].expand_dims(
+        time=ds.time
+    ).assign_coords(ds.coords)
+
+    sla_input_var = (
+        'sla_unfiltered' if 'sla_unfiltered' in ds_sla.data_vars
+        else list(ds_sla.data_vars)[0]
+    )
+    ds_sla = ds_sla.sel(time=ds.time.values, method='nearest')
+
+    sla_ref_var = (
+        'zos' if 'zos' in ds_sla_ref.data_vars
+        else 'sla' if 'sla' in ds_sla_ref.data_vars
+        else list(ds_sla_ref.data_vars)[0]
+    )
+    ds_sla_ref = ds_sla_ref.sel(time=ds.time.values, method='nearest')
+
+    wind_ds['time'] = pd.to_datetime(wind_ds['time'].values)
+    wind_ds = wind_ds.sel(time=ds.time.values, method='nearest')
+
+    ds_sla = ds_sla.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+    ds_sla_ref = ds_sla_ref.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
+    wind_ds = wind_ds.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
+
+    ds = ds.assign(
+        input=ds[variable],
+        input_sla=ds_sla[sla_input_var],
+        input_wind_u=wind_ds['u10'],
+        input_wind_v=wind_ds['v10'],
+        tgt=tgt_sst,
+        tgt_sla=ds_sla_ref[sla_ref_var],
+    )
+
+    return (
+        ds[[*TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._fields]]
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+
+
 """
     SST GLORYS12 OSSE
 """
