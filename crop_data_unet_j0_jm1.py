@@ -96,6 +96,9 @@ def retrieve_geos_velocities(ds_sla):
     ds_interp["ugos"] = (("time", "latitude", "longitude"), ugos)
     ds_interp["vgos"] = (("time", "latitude", "longitude"), vgos)
 
+    # Convert longitude 0-360 -> -180/180
+    ds_interp = ds_interp.assign_coords(longitude=(ds_interp.longitude + 180) % 360 - 180).sortby("longitude")
+
     return ds_interp
 
 
@@ -177,6 +180,8 @@ for key, cfg in LEADTIMES.items():
         mdt_var = [v for v in ds_mdt.data_vars if "mdt" in v.lower()]
         if mdt_var:
             ds_mdt = ds_mdt[[mdt_var[0]]].rename({mdt_var[0]: "mdt"})
+    if "time" in ds_mdt.dims:
+        ds_mdt = ds_mdt.squeeze("time", drop=True)
     ds_mdt = ds_mdt.sel(lon=slice(LON_MIN, LON_MAX), lat=slice(LAT_MIN, LAT_MAX))
     ds_mdt = ds_mdt.interp(lon=target_lon, lat=target_lat, method="linear")
 
