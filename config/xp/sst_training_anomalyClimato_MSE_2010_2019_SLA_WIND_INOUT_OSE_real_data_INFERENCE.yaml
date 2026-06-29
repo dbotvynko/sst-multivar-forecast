@@ -83,7 +83,16 @@ datamodule:
     aug_factor: 1
     aug_only: True
   normalize_per_var: True
-  stats_save_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_WIND_INOUT_OSE_real_data/norm_stats_per_var.json
+  # IMPORTANT: use training stats, NOT inference stats.
+  # These will be filled from the training run's norm_stats_per_var.json
+  # after restarting training (which recomputes correct stats from 2017-2019).
+  norm_stats_per_var:
+    input:       [0.0, 1.0]
+    input_sla:   [0.0, 1.0]
+    input_wind_u: [0.0, 1.0]
+    input_wind_v: [0.0, 1.0]
+    tgt:         [0.0, 1.0]
+    tgt_sla:     [0.0, 1.0]
 
 model:
   _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INOUT
