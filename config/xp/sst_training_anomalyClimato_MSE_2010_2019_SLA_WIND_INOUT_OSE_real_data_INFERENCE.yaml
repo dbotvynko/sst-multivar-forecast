@@ -87,12 +87,12 @@ datamodule:
   # These will be filled from the training run's norm_stats_per_var.json
   # after restarting training (which recomputes correct stats from 2017-2019).
   norm_stats_per_var:
-    input:       [0.0, 1.0]
-    input_sla:   [0.0, 1.0]
-    input_wind_u: [0.0, 1.0]
-    input_wind_v: [0.0, 1.0]
-    tgt:         [0.0, 1.0]
-    tgt_sla:     [0.0, 1.0]
+    input:        [0.189825, 0.618925]
+    input_sla:    [0.074234, 0.089771]
+    input_wind_u: [0.235420, 3.574908]
+    input_wind_v: [0.411179, 2.741593]
+    tgt:          [0.189825, 0.618925]
+    tgt_sla:      [0.070397, 0.071673]
 
 model:
   _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INOUT
