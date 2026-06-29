@@ -1367,7 +1367,8 @@ def load_ose_data_with_tgt_mask_SST_SLA_WIND_INOUT(
     ds_sla_ref = ds_sla_ref.sel(time=ds.time.values, method='nearest')
 
     wind_ds['time'] = pd.to_datetime(wind_ds['time'].values)
-    wind_ds = wind_ds.sel(time=ds.time.values, method='nearest')
+    wind_ds = wind_ds.drop_duplicates('time')
+    wind_ds = wind_ds.reindex(time=ds.time.values, method='nearest')
 
     ds_sla = ds_sla.reindex(lat=ds['lat'], lon=ds['lon'], method='nearest', tolerance=0.15)
     ds_sla_ref = ds_sla_ref.interp(lat=ds['lat'], lon=ds['lon'], method='linear')
