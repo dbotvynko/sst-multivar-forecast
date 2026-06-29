@@ -73,33 +73,35 @@ def compute_geostrophic_velocity(lat, lon, sla, mdt_u, mdt_v):
 
 
 def retrieve_geos_velocities(ds_sla):
-    """Compute UGOS/VGOS from SLA using DUACS MDT for u/v."""
-    mdt_UV = xr.open_dataset(MDT_UV_PATH).isel(time=0).expand_dims({"time": ds_sla.time.values}, axis=0)
+    """Compute UGOS/VGOS from SLA using DUACS MDT for u/v.
+
+    Interpolates MDT u/v onto the SLA grid (not the other way around)
+    to preserve SLA coverage.
+    """
+    mdt_UV = xr.open_dataset(MDT_UV_PATH).isel(time=0)
     mdt_UV["longitude"] = (mdt_UV["longitude"] % 360).where(mdt_UV["longitude"] != 360, 0)
     _, index = np.unique(mdt_UV.coords["longitude"], return_index=True)
     mdt_UV = mdt_UV.isel(longitude=index)
-    mdt_UV.latitude.attrs["units"] = "degrees_north"
-    mdt_UV.longitude.attrs["units"] = "degrees_east"
-    mdt_UV = mdt_UV.sortby(["time", "longitude", "latitude"])
+    # Convert MDT lon from 0-360 to -180/180 to match SLA
+    mdt_UV = mdt_UV.assign_coords(longitude=(mdt_UV.longitude + 180) % 360 - 180).sortby("longitude")
 
-    ds_interp = ds_sla.interp(latitude=mdt_UV.latitude, longitude=mdt_UV.longitude)
+    # Interpolate MDT u/v onto SLA grid (preserves SLA coverage)
+    mdt_on_sla = mdt_UV.interp(latitude=ds_sla.lat, longitude=ds_sla.lon)
 
-    lat = ds_interp["latitude"].values
-    lon = ds_interp["longitude"].values
+    lat = ds_sla["lat"].values
+    lon = ds_sla["lon"].values
 
-    n_times = ds_interp.time.values.shape[0]
-    MDT_u = np.repeat(mdt_UV["u"][0].values[np.newaxis, :, :], n_times, axis=0)
-    MDT_v = np.repeat(mdt_UV["v"][0].values[np.newaxis, :, :], n_times, axis=0)
+    n_times = ds_sla.time.values.shape[0]
+    MDT_u = np.repeat(mdt_on_sla["u"].values[np.newaxis, :, :], n_times, axis=0)
+    MDT_v = np.repeat(mdt_on_sla["v"].values[np.newaxis, :, :], n_times, axis=0)
 
-    ugos, vgos, ugosa, vgosa = compute_geostrophic_velocity(lat, lon, ds_interp["sla"].values, MDT_u, MDT_v)
+    ugos, vgos, ugosa, vgosa = compute_geostrophic_velocity(lat, lon, ds_sla["sla"].values, MDT_u, MDT_v)
 
-    ds_interp["ugos"] = (("time", "latitude", "longitude"), ugos)
-    ds_interp["vgos"] = (("time", "latitude", "longitude"), vgos)
+    ds_out = ds_sla.copy()
+    ds_out["ugos"] = (("time", "lat", "lon"), ugos)
+    ds_out["vgos"] = (("time", "lat", "lon"), vgos)
 
-    # Convert longitude 0-360 -> -180/180
-    ds_interp = ds_interp.assign_coords(longitude=(ds_interp.longitude + 180) % 360 - 180).sortby("longitude")
-
-    return ds_interp
+    return ds_out[["ugos", "vgos"]]
 
 
 # =============================================================================
@@ -134,15 +136,7 @@ for key, cfg in LEADTIMES.items():
 
     # --- UGOS / VGOS (computed from SLA) ---
     print("  UGOS/VGOS (geostrophic from SLA)...")
-    # Need SLA with latitude/longitude coords for velocity computation
-    ds_sla_for_vel = ds_sla.copy()
-    if "lat" in ds_sla_for_vel.dims:
-        ds_sla_for_vel = ds_sla_for_vel.rename({"lat": "latitude", "lon": "longitude"})
-    ds_vel = retrieve_geos_velocities(ds_sla_for_vel)
-    # Rename back to lat/lon for consistency
-    if "latitude" in ds_vel.dims:
-        ds_vel = ds_vel.rename({"latitude": "lat", "longitude": "lon"})
-    ds_vel = ds_vel[["ugos", "vgos"]]
+    ds_vel = retrieve_geos_velocities(ds_sla)
 
     # --- Crop and regrid SLA/SST ---
     print("  Regridding SLA/SST...")
