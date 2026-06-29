@@ -1139,6 +1139,8 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, ma
     wind_ds = xr.open_dataset(wind_path, chunks={})
     if 'latitude' in list(wind_ds.dims):
         wind_ds = wind_ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    if wind_ds['lon'].values.max() > 180:
+        wind_ds = wind_ds.assign_coords(lon=(wind_ds['lon'].values + 180) % 360 - 180).sortby('lon')
     wind_ds['time'] = wind_ds.time.dt.date
     wind_ds = wind_ds.sel(time=ds.time.values)
 
@@ -1333,6 +1335,8 @@ def load_ose_data_with_tgt_mask_SST_SLA_WIND_INOUT(
         ds_sst_ref = ds_sst_ref.rename({'latitude': 'lat', 'longitude': 'lon'})
     if 'latitude' in list(wind_ds.dims):
         wind_ds = wind_ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    if wind_ds['lon'].values.max() > 180:
+        wind_ds = wind_ds.assign_coords(lon=(wind_ds['lon'].values + 180) % 360 - 180).sortby('lon')
     if 'thetao' in list(ds_sst_ref.variables):
         ds_sst_ref = ds_sst_ref.rename({'thetao': variable})
     if 'analysed_sst' in list(ds_sst_ref.variables):
