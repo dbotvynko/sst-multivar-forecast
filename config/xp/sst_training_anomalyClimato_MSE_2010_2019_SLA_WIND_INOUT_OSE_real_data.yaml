@@ -54,7 +54,7 @@ trainer:
   devices: 1
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
-    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_WIND_INOUT_OSE_real_data
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_WIND_INOUT_OSE_real_data_CORRECT_LONS
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 500
