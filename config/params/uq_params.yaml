@@ -1,0 +1,41 @@
+# @package _global_
+#
+# Uncertainty Quantification parameters for inference-time UQ.
+# Include this file alongside an existing experiment config.
+#
+# Usage example:
+#   python main.py +xp=base_forecast_global_softedge_fastrec_GPU_1patch_10y_REAL_DATA \
+#                  +params=uq_params
+
+uq:
+  # Which UQ methods to activate at test time (any subset of the list below)
+  #   ope      — Observation Perturbation Ensemble
+  #   mcd      — Monte Carlo Dropout
+  #   hessian  — Diagonal Hessian posterior variance
+  #   conformal — Split conformal prediction intervals (requires calibration)
+  modes: [ope, mcd]
+
+  # --- Observation Perturbation Ensemble ---
+  ope:
+    n_members: 20           # ensemble size; 20-50 is a good range
+    obs_noise_std: 0.05     # additive noise std in normalised units
+                            # ≈ 5% of the data std — tune to match obs error
+    perturb_missing: false  # also perturb NaN-filled gaps?
+
+  # --- Monte Carlo Dropout ---
+  mcd:
+    n_samples: 30           # stochastic forward passes
+
+  # --- Diagonal Hessian ---
+  hessian:
+    n_probes: 10            # Hutchinson probe vectors (more → lower variance)
+    eps: 1.0e-6             # numerical stability floor for 1/diag(H)
+
+  # --- Conformal Prediction ---
+  conformal:
+    alpha: 0.1              # miscoverage level (0.1 → 90% coverage guarantee)
+    score_type: normalized  # "absolute" or "normalized"
+                            # normalized uses OPE std to scale residuals
+
+  # --- Output options ---
+  save_members: false       # store all ensemble members in output netCDF
