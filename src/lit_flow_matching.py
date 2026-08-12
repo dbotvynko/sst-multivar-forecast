@@ -70,12 +70,15 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
             out = self.pretrained(batch=batch)
         return out.view(out.size(0), 2, 29, out.size(-2), out.size(-1))
 
-    def _get_condition(self, batch):
-        """Past observations as condition: concatenate masked SST + SLA inputs."""
-        return torch.cat([
+    def _get_condition(self, batch, x_0=None):
+        """Past observations + deterministic forecast as condition."""
+        parts = [
             torch.nan_to_num(batch.input),
             torch.nan_to_num(batch.input_sla),
-        ], dim=1)
+        ]
+        if x_0 is not None:
+            parts.append(torch.nan_to_num(x_0))
+        return torch.cat(parts, dim=1)
 
     def _get_target(self, batch):
         """Ground truth output: SST + SLA targets stacked as [B, 2, 29, H, W] then flattened."""
@@ -97,8 +100,8 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         x_0 = torch.nan_to_num(x_0)
         x_1 = torch.nan_to_num(x_1)
 
-        # condition: past observations [B, 58, H, W]
-        condition = self._get_condition(batch)
+        # condition: past observations + deterministic forecast [B, 116, H, W]
+        condition = self._get_condition(batch, x_0=x_0)
 
         # sample t ~ U(0,1)
         t = torch.rand(x_0.size(0), device=x_0.device)
@@ -135,7 +138,7 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
         x_0 = torch.nan_to_num(x_0)
         x_1 = torch.nan_to_num(x_1)
 
-        condition = self._get_condition(batch)
+        condition = self._get_condition(batch, x_0=x_0)
 
         # evaluate with Euler integration (more steps than training for better val signal)
         x_refined = self._euler_integrate(x_0, condition, n_steps=self.val_n_inference_steps)
@@ -162,7 +165,7 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
 
         x_0 = self._get_deterministic_forecast(batch)
         x_0 = x_0.view(x_0.size(0), -1, x_0.size(-2), x_0.size(-1))
-        condition = self._get_condition(batch)
+        condition = self._get_condition(batch, x_0=x_0)
 
         x_refined = self._euler_integrate(x_0, condition)
 

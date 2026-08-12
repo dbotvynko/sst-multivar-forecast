@@ -155,7 +155,7 @@ model:
   velocity_net:
     _target_: src.models_flow_matching.FlowMatchingVelocityUNet
     n_output_channels: 58   # 29 SST + 29 SLA
-    n_cond_channels: 58     # 29 SST input + 29 SLA input
+    n_cond_channels: 116    # 29 SST input + 29 SLA input + 58 deterministic forecast (x_0)
     bilinear: True
     time_dim: 256
   pre_metric_fn:
