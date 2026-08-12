@@ -103,7 +103,8 @@ datamodule:
 model:
   _target_: contrib.forecast_plus.models_flow_matching.FlowMatchingForecastPatchGPU_SST_SLA_INOUT
   pretrained_ckpt_path: ${paths.pretrained_ckpt_path}
-  n_inference_steps: 10
+  n_inference_steps: 1
+  val_n_inference_steps: 50
   persist_rw: False
   opt_fn:
     _target_: src.utils.cosanneal_lr_adam_flow_matching

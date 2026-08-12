@@ -25,12 +25,13 @@ import xarray as xr
 
 class LitFlowMatching_SST_SLA(pl.LightningModule):
     def __init__(self, velocity_net, pretrained_model, pretrained_ckpt_path,
-                 opt_fn, rec_weight, n_inference_steps=10,
+                 opt_fn, rec_weight, n_inference_steps=10, val_n_inference_steps=None,
                  pre_metric_fn=None, test_metrics=None, norm_stats=None,
                  persist_rw=True):
         super().__init__()
         self.velocity_net = velocity_net
         self.n_inference_steps = n_inference_steps
+        self.val_n_inference_steps = val_n_inference_steps if val_n_inference_steps is not None else n_inference_steps
         self._opt_fn = opt_fn
         self.pre_metric_fn = pre_metric_fn
         self.norm_stats = norm_stats
@@ -136,8 +137,8 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
 
         condition = self._get_condition(batch)
 
-        # evaluate with Euler integration
-        x_refined = self._euler_integrate(x_0, condition)
+        # evaluate with Euler integration (more steps than training for better val signal)
+        x_refined = self._euler_integrate(x_0, condition, n_steps=self.val_n_inference_steps)
 
         loss = (valid * (x_refined - x_1) ** 2).sum() / valid.sum().clamp(min=1)
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -145,11 +146,12 @@ class LitFlowMatching_SST_SLA(pl.LightningModule):
             m, s = self.norm_stats
             self.log('val_mse', loss * s**2, prog_bar=True, on_step=False, on_epoch=True)
 
-    def _euler_integrate(self, x_0, condition):
+    def _euler_integrate(self, x_0, condition, n_steps=None):
         """Euler ODE integration from x_0 (deterministic forecast) to refined forecast."""
-        dt = 1.0 / self.n_inference_steps
+        n_steps = n_steps if n_steps is not None else self.n_inference_steps
+        dt = 1.0 / n_steps
         x_t = x_0
-        for i in range(self.n_inference_steps):
+        for i in range(n_steps):
             t = torch.full((x_t.size(0),), i * dt, device=x_t.device)
             v = self.velocity_net(x_t, t, condition)
             x_t = x_t + v * dt
