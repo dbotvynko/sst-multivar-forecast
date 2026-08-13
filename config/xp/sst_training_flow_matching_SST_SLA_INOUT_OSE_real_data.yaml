@@ -158,6 +158,7 @@ model:
     n_cond_channels: 116    # 29 SST input + 29 SLA input + 58 deterministic forecast (x_0)
     bilinear: True
     time_dim: 256
+    dropout: 0.2
   pre_metric_fn:
     _target_: xarray.Dataset.sel
     _partial_: True

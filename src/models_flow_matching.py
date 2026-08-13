@@ -37,7 +37,7 @@ def _norm(num_channels):
 
 class TimeConditionedBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_dim, mid_channels=None,
-                 kernel_size=3, sf=1):
+                 kernel_size=3, sf=1, dropout=0.0):
         super().__init__()
         self._scaling_factor = sf
         padding = kernel_size // 2
@@ -54,6 +54,7 @@ class TimeConditionedBlock(nn.Module):
             nn.Linear(time_dim, mid_channels),
         )
         self.conv2 = nn.Sequential(
+            nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
             nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size,
                       padding=padding, bias=False),
             _norm(out_channels),
@@ -75,10 +76,10 @@ class TimeConditionedBlock(nn.Module):
 
 
 class DownTime(nn.Module):
-    def __init__(self, in_channels, out_channels, time_dim, sf=1):
+    def __init__(self, in_channels, out_channels, time_dim, sf=1, dropout=0.0):
         super().__init__()
         self.pool = nn.MaxPool2d(2)
-        self.block = TimeConditionedBlock(in_channels, out_channels, time_dim, sf=sf)
+        self.block = TimeConditionedBlock(in_channels, out_channels, time_dim, sf=sf, dropout=dropout)
 
     def forward(self, x, t_emb):
         x = self.pool(x)
@@ -86,15 +87,15 @@ class DownTime(nn.Module):
 
 
 class UpTime(nn.Module):
-    def __init__(self, in_channels, out_channels, time_dim, bilinear=True, sf=1):
+    def __init__(self, in_channels, out_channels, time_dim, bilinear=True, sf=1, dropout=0.0):
         super().__init__()
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.block = TimeConditionedBlock(in_channels, out_channels, time_dim,
-                                              mid_channels=in_channels // 2, sf=sf)
+                                              mid_channels=in_channels // 2, sf=sf, dropout=dropout)
         else:
             self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.block = TimeConditionedBlock(in_channels, out_channels, time_dim, sf=sf)
+            self.block = TimeConditionedBlock(in_channels, out_channels, time_dim, sf=sf, dropout=dropout)
 
     def forward(self, x1, x2, t_emb):
         x1 = self.up(x1)
@@ -116,7 +117,7 @@ class FlowMatchingVelocityUNet(nn.Module):
         bilinear: use bilinear upsampling
         time_dim: dimension of time embedding
     """
-    def __init__(self, n_output_channels=58, n_cond_channels=58, bilinear=True, time_dim=256):
+    def __init__(self, n_output_channels=58, n_cond_channels=58, bilinear=True, time_dim=256, dropout=0.0):
         super().__init__()
         self.n_output_channels = n_output_channels
         self.n_cond_channels = n_cond_channels
@@ -132,16 +133,16 @@ class FlowMatchingVelocityUNet(nn.Module):
         )
 
         in_ch = n_output_channels + n_cond_channels
-        self.inc = TimeConditionedBlock(in_ch, 64, time_dim, sf=1)
-        self.down1 = DownTime(64, 128, time_dim, sf=sfs[1])
-        self.down2 = DownTime(128, 256, time_dim, sf=sfs[2])
-        self.down3 = DownTime(256, 512, time_dim, sf=sfs[3])
-        self.down4 = DownTime(512, 1024 // factor, time_dim, sf=sfs[4])
+        self.inc = TimeConditionedBlock(in_ch, 64, time_dim, sf=1, dropout=dropout)
+        self.down1 = DownTime(64, 128, time_dim, sf=sfs[1], dropout=dropout)
+        self.down2 = DownTime(128, 256, time_dim, sf=sfs[2], dropout=dropout)
+        self.down3 = DownTime(256, 512, time_dim, sf=sfs[3], dropout=dropout)
+        self.down4 = DownTime(512, 1024 // factor, time_dim, sf=sfs[4], dropout=dropout)
 
-        self.up1 = UpTime(1024, 512 // factor, time_dim, bilinear, sf=sfs[5])
-        self.up2 = UpTime(512, 256 // factor, time_dim, bilinear, sf=sfs[6])
-        self.up3 = UpTime(256, 128 // factor, time_dim, bilinear, sf=sfs[7])
-        self.up4 = UpTime(128, 64, time_dim, bilinear, sf=sfs[8])
+        self.up1 = UpTime(1024, 512 // factor, time_dim, bilinear, sf=sfs[5], dropout=dropout)
+        self.up2 = UpTime(512, 256 // factor, time_dim, bilinear, sf=sfs[6], dropout=dropout)
+        self.up3 = UpTime(256, 128 // factor, time_dim, bilinear, sf=sfs[7], dropout=dropout)
+        self.up4 = UpTime(128, 64, time_dim, bilinear, sf=sfs[8], dropout=dropout)
         self.outc = OutConv(64, n_output_channels)
 
     def forward(self, x_t, t, condition):
