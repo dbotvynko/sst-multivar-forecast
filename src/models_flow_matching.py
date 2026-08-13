@@ -4,7 +4,7 @@ Flow Matching velocity UNet for SST+SLA forecast refinement.
 Time-conditioned UNet that predicts a velocity field v(x_t, t, condition)
 to transform the deterministic forecast into the ground truth distribution.
 
-Input:  x_t (58 ch) + condition (58 ch: past SST + past SLA) = 116 channels
+Input:  x_t (58 ch) + condition (116 ch: past SST + past SLA + x_0) = 174 channels
 Output: velocity (58 ch: 29 SST + 29 SLA)
 """
 import math
@@ -26,6 +26,15 @@ class SinusoidalTimeEmbedding(nn.Module):
         return torch.cat([args.sin(), args.cos()], dim=-1)
 
 
+def _norm(num_channels):
+    # GroupNorm has no train/eval discrepancy unlike BatchNorm — critical for
+    # flow matching where val batch size=1 and running stats would diverge.
+    num_groups = min(32, num_channels)
+    while num_channels % num_groups != 0:
+        num_groups //= 2
+    return nn.GroupNorm(num_groups, num_channels)
+
+
 class TimeConditionedBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_dim, mid_channels=None,
                  kernel_size=3, sf=1):
@@ -37,7 +46,7 @@ class TimeConditionedBlock(nn.Module):
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size,
                       padding=padding, bias=False),
-            nn.BatchNorm2d(mid_channels),
+            _norm(mid_channels),
             nn.ReLU(inplace=True),
         )
         self.time_mlp = nn.Sequential(
@@ -47,12 +56,12 @@ class TimeConditionedBlock(nn.Module):
         self.conv2 = nn.Sequential(
             nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size,
                       padding=padding, bias=False),
-            nn.BatchNorm2d(out_channels),
+            _norm(out_channels),
         )
         if in_channels != out_channels:
             self.projection_conv = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-                nn.BatchNorm2d(out_channels),
+                _norm(out_channels),
             )
 
     def forward(self, x, t_emb):
