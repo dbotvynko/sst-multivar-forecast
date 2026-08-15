@@ -1,25 +1,20 @@
 # @package _global_
 #
-# GloFM-style flow matching for SST+SLA (Garcia et al., VISAPP 2026)
-# adapted to the global SST+SLA end-to-end forecast setup.
+# GloFM-inspired conditional FM for end-to-end SST+SLA forecasting.
 #
-# Key differences from other FM variants:
-#   - UNCONDITIONAL training: FM learns p(SST, SLA) from clean GLORYS data
-#     without any conditioning signal — no pre-trained frozen model needed!
-#   - Logit-normal timestep sampling: z~N(0,1), s=sigmoid(z)
-#     → denser steps around s=0.5, downweights extremes
-#   - MMPS at inference: gradient-based posterior conditioning on sparse obs
-#     (past SST L3 + past SLA L3) — no concatenation, pure gradient guidance
-#   - EMA (decay=0.999) for stable generation
-#   - Heun's 2nd-order ODE + non-uniform schedule at inference
+# Key contribution from Garcia et al. (VISAPP 2026) applied here:
+#   Logit-normal timestep sampling: z~N(0,1), tau=sigmoid(z)
+#   → training signal concentrates around tau=0.5 (hardest regime)
+#   → downweights near tau=0 (trivial noise) and tau=1 (trivial signal)
 #
-# Architecture: FlowMatchingVelocityUNetUnconditional
-#   Input:  x_t (58 ch = 29 SST + 29 SLA) only
-#   Output: velocity (58 ch)
-#   Self-attention at coarsest UNet resolution
+# Everything else = LitFlowMatchingImproved_SST_SLA (our improved FM):
+#   - Frozen pre-trained deterministic UNet (condition = past obs + x_0)
+#   - EMA (decay=0.999) for stable inference
+#   - Heun's 2nd-order ODE + non-uniform schedule
+#   - Self-attention at coarsest UNet resolution (FlowMatchingVelocityUNetAttn)
 #
-# Posterior conditioning (MMPS at inference):
-#   ∇_xs log p(y|xs) ≈ obs_mask * (y - E[x1|xs]) / (σ_y² + (1-s)²)
+# Task: past sparse SST+SLA obs → future SST+SLA ensemble forecast
+# Condition (116 ch): 29 SST obs + 29 SLA obs + 58 deterministic forecast x_0
 
 paths:
     masks_path: /Odyssey/public/glorys/obs_masks/global_obs_6sats_masks_2022.pickle
@@ -29,6 +24,7 @@ paths:
     sla_l4_path: /Odyssey/public/duacs/2010_2019/duacs_2010_2019_0.25deg_float32.nc
     ref_data_l4: ""
     ose_data_paths: ""
+    pretrained_ckpt_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_SLA_INOUT_and_OUTPUT_OSE_real_data/sst_training_anomalyClimato_MSE_2010_2019_SLA_INOUT_OSE_real_data/checkpoints/val_mse=0.04409-epoch=342.ckpt
 
 var_name: "sst_anomaly"
 year_ose: 2023
@@ -57,7 +53,7 @@ trainer:
   devices: 2
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
-    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_FLOW_MATCHING_GLOFM_SST_SLA_2gpu_uncond_mmps
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_ODYSSEA_UNet_ResBlock_17M_2010_2019_FLOW_MATCHING_GLOFM_SST_SLA_INOUT_2gpu_logitnormal_ema_heun
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 300
@@ -106,21 +102,16 @@ datamodule:
 
 model:
   _target_: contrib.forecast_plus.models_flow_matching.FlowMatchingGloFMForecastPatchGPU_SST_SLA_INOUT
-  # ── No pretrained_ckpt_path: GloFM is unconditional ──
-  n_inference_steps: 20    # Heun's method with MMPS — 20 steps is sufficient
-  val_n_inference_steps: 20
+  pretrained_ckpt_path: ${paths.pretrained_ckpt_path}
+  sigma_prior: 1.0
+  n_inference_steps: 50    # Heun with 50 steps (matches Wetherell 2026)
+  val_n_inference_steps: 50
   ema_decay: 0.999
-  # MMPS observation noise (normalized space)
-  # σ_y_sst: 0.4°C / 0.468 ≈ 0.85 but use 0.5 for tighter conditioning
-  sigma_y_sst: 0.5
-  # σ_y_sla: 0.03m / 0.051 ≈ 0.59 but use 0.3 for tighter conditioning
-  sigma_y_sla: 0.3
-  obs_lambda: 1.0          # MMPS correction strength
   persist_rw: False
   opt_fn:
     _target_: src.utils.cosanneal_lr_adam_flow_matching
     _partial_: true
-    lr: 1e-4               # GloFM uses Adam lr=1e-5 → we start at 1e-4 with cosine decay
+    lr: 1e-4               # lower LR matches GloFM and Wetherell (2026)
     T_max: ${trainer.max_epochs}
   rec_weight:
     _target_: src.utils.get_forecast_wei
@@ -130,10 +121,43 @@ model:
     _target_: contrib.forecast_weights.forecast_weights_reconstruction_soft_edges
     _partial_: True
     soft_edge: 0.25
-  # Unconditional velocity UNet with self-attention at coarsest resolution
+  # Frozen pre-trained deterministic model — same as all other FM variants
+  pretrained_model:
+    _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_INPUT_SLA_OUTPUT
+    persist_rw: False
+    opt_fn:
+      _target_: src.utils.cosanneal_lr_adam_UNet
+      _partial_: true
+      lr: 1e-3
+      T_max: 500
+    rec_weight:
+      _target_: src.utils.get_forecast_wei
+      patch_dims: ${datamodule.xrds_kw.patch_dims}
+      crop: {time: 0, lat: 4, lon: 4}
+    rec_weight_fn:
+      _target_: contrib.forecast_weights.forecast_weights_reconstruction_soft_edges
+      _partial_: True
+      soft_edge: 0.25
+    solver:
+      _target_: src.models_UNet.UNet_SST_and_SLA_INPUT_SLA_OUTPUT
+      n_channels: 29
+      n_classes: 58
+      bilinear: True
+      block:
+        _target_: src.parts.ResBlock
+        _partial_: True
+      add_input: False
+    pre_metric_fn:
+      _target_: xarray.Dataset.sel
+      _partial_: True
+      time: {_target_: builtins.slice, _args_: ["2019-11-25", "2019-12-31"]}
+      lat: ${domain.test.lat}
+      lon: ${domain.test.lon}
+  # Conditional velocity UNet with self-attention at coarsest resolution
   velocity_net:
-    _target_: src.models_flow_matching_uncond.FlowMatchingVelocityUNetUnconditional
-    n_output_channels: 58   # 29 SST + 29 SLA
+    _target_: src.models_flow_matching_attn.FlowMatchingVelocityUNetAttn
+    n_output_channels: 58    # 29 SST + 29 SLA
+    n_cond_channels: 116     # 29 SST obs + 29 SLA obs + 58 x_0
     bilinear: True
     time_dim: 256
     dropout: 0.1

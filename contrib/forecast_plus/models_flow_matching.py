@@ -300,12 +300,11 @@ class FlowMatchingImprovedForecastPatchGPU_SST_SLA_INOUT(LitFlowMatchingImproved
 
 class FlowMatchingGloFMForecastPatchGPU_SST_SLA_INOUT(LitFlowMatchingGloFM_SST_SLA):
     """
-    GloFM (Garcia et al. 2026) adapted for SST+SLA global patch reconstruction.
+    GloFM logit-normal timestep + EMA + Heun for SST+SLA global patch reconstruction.
 
-    Unconditional FM training + MMPS posterior sampling at inference.
-    No pre-trained deterministic model required — learns the ocean state
-    distribution directly from simulation and conditions on observations
-    at inference time via gradient-based posterior correction.
+    Conditional FM (past obs + deterministic x_0 as condition), trained with
+    GloFM's logit-normal timestep sampling. Fully consistent with end-to-end
+    SST+SLA forecasting from sparse observations.
     """
     def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -316,7 +315,12 @@ class FlowMatchingGloFMForecastPatchGPU_SST_SLA_INOUT(LitFlowMatchingGloFM_SST_S
     def get_dT(self):
         return self.rec_weight.size()[0]
 
+    def clear_gpu_mem(self):
+        del self.pretrained.solver
+        torch.cuda.empty_cache()
+
     def on_test_epoch_end(self):
+        self.clear_gpu_mem()
         dims = self.rec_weight.size()
         dT = self.get_dT()
         output_start = 0 if self.output_only_forecast else -14
