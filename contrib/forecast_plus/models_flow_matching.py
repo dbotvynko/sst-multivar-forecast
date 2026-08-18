@@ -370,6 +370,126 @@ class FlowMatchingGloFMForecastPatchGPU_SST_SLA_INOUT(LitFlowMatchingGloFM_SST_S
             print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
 
 
+class FlowMatchingGloFMEnsembleForecastPatchGPU_SST_SLA_INOUT(FlowMatchingGloFMForecastPatchGPU_SST_SLA_INOUT):
+    """
+    GloFM FM with multi-member ensemble inference.
+
+    Generates n_ensemble_members independent samples per 15-day window by drawing
+    fresh noise for each member. Saves per lead time:
+      - sst_mean / sla_mean : ensemble mean (best single estimate)
+      - sst_std  / sla_std  : ensemble std  (uncertainty / spread)
+
+    All members use EMA weights at inference (inherited from LitFlowMatchingImproved).
+    """
+
+    def __init__(self, *args, n_ensemble_members=10, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.n_ensemble_members = n_ensemble_members
+
+    def test_step(self, batch, batch_idx):
+        batch = self._mask_future(batch)
+
+        x_0 = self._get_deterministic_forecast(batch)
+        x_0 = torch.nan_to_num(x_0)
+        condition = self._get_condition(batch, x_0)
+        reference = torch.zeros_like(x_0)
+
+        members = []
+        for _ in range(self.n_ensemble_members):
+            x_member = self._sample(condition, reference, use_ema=True)
+            members.append(x_member)
+
+        # [n_members, B, 58, H, W]
+        members = torch.stack(members, dim=0)
+        x_mean = members.mean(dim=0)
+        x_std  = members.std(dim=0)
+
+        if batch_idx == 0:
+            self.test_data_sst_mean = []
+            self.test_data_sla_mean = []
+            self.test_data_sst_std  = []
+            self.test_data_sla_std  = []
+
+        dm = self.trainer.datamodule
+        if hasattr(dm, 'norm_stats_per_var') and dm.normalize_per_var:
+            m_sst, s_sst = dm.norm_stats_per_var()['tgt']
+            m_sla, s_sla = dm.norm_stats_per_var()['tgt_sla']
+        elif self.norm_stats is not None:
+            m_sst, s_sst = self.norm_stats
+            m_sla, s_sla = m_sst, s_sst
+        else:
+            m_sst, s_sst = 0, 1
+            m_sla, s_sla = 0, 1
+
+        def _split(x):
+            v = x.view(x.size(0), 2, 29, x.size(-2), x.size(-1)).detach().cpu()
+            sst = v[:, 0:1] * s_sst + m_sst
+            sla = v[:, 1:2] * s_sla + m_sla
+            return sst, sla
+
+        sst_mean, sla_mean = _split(x_mean)
+        sst_std,  sla_std  = _split(x_std)
+
+        self.test_data_sst_mean.append(sst_mean)
+        self.test_data_sla_mean.append(sla_mean)
+        self.test_data_sst_std.append(sst_std)
+        self.test_data_sla_std.append(sla_std)
+
+    def on_test_epoch_end(self):
+        self.clear_gpu_mem()
+
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        output_start = 0 if self.output_only_forecast else -14
+        if self.output_leadtime_start is not None:
+            output_start = self.output_leadtime_start
+
+        sst_mean_t = torch.cat(self.test_data_sst_mean).cuda()
+        sla_mean_t = torch.cat(self.test_data_sla_mean).cuda()
+        sst_std_t  = torch.cat(self.test_data_sst_std).cuda()
+        sla_std_t  = torch.cat(self.test_data_sla_std).cuda()
+
+        metrics = []
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+
+            def _rec(t):
+                r = self.trainer.test_dataloaders.dataset.reconstruct(t, fw)
+                return r[0] if isinstance(r, list) else r
+
+            rec_sst_mean = _rec(sst_mean_t)
+            rec_sla_mean = _rec(sla_mean_t)
+            rec_sst_std  = _rec(sst_std_t)
+            rec_sla_std  = _rec(sla_std_t)
+
+            ds = xr.merge([
+                rec_sst_mean.assign_coords(v0=['sst_mean']).to_dataset(dim='v0'),
+                rec_sla_mean.assign_coords(v0=['sla_mean']).to_dataset(dim='v0'),
+                rec_sst_std.assign_coords(v0=['sst_std']).to_dataset(dim='v0'),
+                rec_sla_std.assign_coords(v0=['sla_std']).to_dataset(dim='v0'),
+            ])
+
+            if self.logger:
+                out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                ds.to_netcdf(out_path)
+                print(out_path)
+
+            if self.pre_metric_fn is not None:
+                ds_mean = xr.merge([
+                    rec_sst_mean.assign_coords(v0=['sst']).to_dataset(dim='v0'),
+                    rec_sla_mean.assign_coords(v0=['sla']).to_dataset(dim='v0'),
+                ])
+                metric_data = ds_mean.pipe(self.pre_metric_fn)
+                metrics_leadtime = pd.Series({
+                    metric_n: metric_fn(metric_data)
+                    for metric_n, metric_fn in self.metrics.items()
+                })
+                metrics.append(metrics_leadtime)
+
+        if metrics:
+            print(pd.DataFrame(metrics, range(output_start, 7)).T.to_markdown())
+
+
 class FlowMatchingX0CondForecastPatchGPU_SST_SLA_INOUT(LitFlowMatchingX0Cond_SST_SLA):
     """
     FM conditioned on pretrained x_0 only — Ronan's suggestion.
