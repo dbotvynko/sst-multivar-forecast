@@ -58,9 +58,24 @@ class LitFlowMatchingObsSource_SST_SLA(LitFlowMatchingX0Cond_SST_SLA):
     """
 
     def _get_source(self, batch):
-        """Build obs-source: sparse obs with NaN→0, future already 0 from _mask_future."""
-        sst = torch.nan_to_num(batch.input,     nan=0.0)   # [B, 29, H, W]
-        sla = torch.nan_to_num(batch.input_sla, nan=0.0)   # [B, 29, H, W]
+        """
+        Build obs-source with noise on observed pixels only.
+
+        Observed pixels:  obs + σ*ε  (noisy obs → ensemble diversity)
+        Missing pixels:   0           (climatological mean, no noise)
+        Future pixels:    0           (already masked by _mask_future, no noise)
+        """
+        obs_sst = batch.input        # [B, 29, H, W], NaN where missing/future
+        obs_sla = batch.input_sla    # [B, 29, H, W], NaN where missing/future
+
+        mask_sst = torch.isfinite(obs_sst).float()
+        mask_sla = torch.isfinite(obs_sla).float()
+
+        noise_sst = torch.randn_like(obs_sst) * self.sigma_prior * mask_sst
+        noise_sla = torch.randn_like(obs_sla) * self.sigma_prior * mask_sla
+
+        sst = torch.nan_to_num(obs_sst, nan=0.0) + noise_sst
+        sla = torch.nan_to_num(obs_sla, nan=0.0) + noise_sla
         return torch.cat([sst, sla], dim=1)                 # [B, 58, H, W]
 
     def training_step(self, batch, batch_idx):
