@@ -13,8 +13,8 @@
 # Everything else identical to sst_training_flow_matching_osse_sla_2gpu.
 
 paths:
-  masks_path: /Odyssey/public/swot_traces/mask/global_obs_swot_nadir_DT_2024.pickle
-  glorys12_data: /Odyssey/public/glorys/reanalysis/glorys12_2020_daily_sla_4th_input.nc
+  glorys12_input: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
+  glorys12_target: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
 
 var_name: "sla_masked_osse"
 year_ose: 2023
@@ -59,9 +59,9 @@ trainer:
 datamodule:
   _target_: contrib.moving_patches.movpatch_data_tests.MovingPatchDataModuleFastRecGPU
   input_da:
-    _target_: contrib.data_loading.data.open_glorys12_data_sla
-    path: ${paths.glorys12_data}
-    masks_path: ${paths.masks_path}
+    _target_: contrib.data_loading.data.open_glorys12_data_sla_premasked
+    input_path: ${paths.glorys12_input}
+    tgt_path: ${paths.glorys12_target}
     domain: ${domain.train}
   domains:
     train:

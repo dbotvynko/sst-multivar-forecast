@@ -436,6 +436,41 @@ def open_glorys12_data_sla(path, masks_path, domain, variables="sla", masking=Tr
 
     return ds
 
+
+def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sla", test_cut=None):
+    """
+    Load pre-masked OSSE SLA data from separate input and target files.
+
+    input_path: masked GLORYS12 SLA (sparse observations already applied)
+    tgt_path:   complete GLORYS12 SLA (ground truth)
+    No masking step — files are already prepared.
+    """
+    print("LOADING pre-masked OSSE SLA data")
+    ds_inp = xr.open_dataset(input_path)
+    ds_tgt = xr.open_dataset(tgt_path)
+
+    for ds in (ds_inp, ds_tgt):
+        if 'latitude' in ds.dims:
+            ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+
+    if test_cut is not None:
+        ds_inp = ds_inp.sel(time=test_cut)
+        ds_tgt = ds_tgt.sel(time=test_cut)
+
+    ds = (
+        xr.Dataset({
+            'input': ds_inp[variables],
+            'tgt':   ds_tgt[variables],
+        })
+        .load()
+        .sel(domain)
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+    print("done.")
+    return ds
+
+
 '''
     Real data , for the L3 loss and AvgPool loss
 '''
