@@ -446,26 +446,34 @@ def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sl
     No masking step — files are already prepared.
     """
     print("LOADING pre-masked OSSE SLA data")
-    ds_inp = xr.open_dataset(input_path, chunks={'time': 30})
-    ds_tgt = xr.open_dataset(tgt_path, chunks={'time': 30})
-
     rename = {'latitude': 'lat', 'longitude': 'lon'}
-    if 'latitude' in ds_inp.dims:
-        ds_inp = ds_inp.rename(rename)
-    if 'latitude' in ds_tgt.dims:
-        ds_tgt = ds_tgt.rename(rename)
 
-    if test_cut is not None:
-        ds_inp = ds_inp.sel(time=test_cut)
-        ds_tgt = ds_tgt.sel(time=test_cut)
+    # Load sequentially + cast to float32 to keep peak RAM to one file at a time
+    print("  loading input...")
+    with xr.open_dataset(input_path) as ds_inp:
+        if 'latitude' in ds_inp.dims:
+            ds_inp = ds_inp.rename(rename)
+        if test_cut is not None:
+            ds_inp = ds_inp.sel(time=test_cut)
+        da_inp_sel = ds_inp[variables].sel(domain).drop_vars(
+            ['latitude', 'longitude'], errors='ignore'
+        )
+        inp_vals = da_inp_sel.values.astype(np.float32)
+        inp_coords = {d: da_inp_sel.coords[d].values for d in da_inp_sel.dims}
 
-    da_inp = ds_inp[variables].sel(domain)
-    da_tgt = ds_tgt[variables].sel(domain)
+    print("  loading target...")
+    with xr.open_dataset(tgt_path) as ds_tgt:
+        if 'latitude' in ds_tgt.dims:
+            ds_tgt = ds_tgt.rename(rename)
+        if test_cut is not None:
+            ds_tgt = ds_tgt.sel(time=test_cut)
+        da_tgt_sel = ds_tgt[variables].sel(domain).drop_vars(
+            ['latitude', 'longitude'], errors='ignore'
+        )
+        tgt_vals = da_tgt_sel.values.astype(np.float32)
 
-    # drop any leftover duplicate coordinate dimensions
-    for extra in ('latitude', 'longitude'):
-        da_inp = da_inp.drop_vars(extra, errors='ignore')
-        da_tgt = da_tgt.drop_vars(extra, errors='ignore')
+    da_inp = xr.DataArray(inp_vals, dims=list(inp_coords.keys()), coords=inp_coords)
+    da_tgt = xr.DataArray(tgt_vals, dims=list(inp_coords.keys()), coords=inp_coords)
 
     ds = (
         xr.Dataset({'input': da_inp, 'tgt': da_tgt})
