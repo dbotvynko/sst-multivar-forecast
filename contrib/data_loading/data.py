@@ -446,8 +446,8 @@ def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sl
     No masking step — files are already prepared.
     """
     print("LOADING pre-masked OSSE SLA data")
-    ds_inp = xr.open_dataset(input_path)
-    ds_tgt = xr.open_dataset(tgt_path)
+    ds_inp = xr.open_dataset(input_path, chunks={'time': 30})
+    ds_tgt = xr.open_dataset(tgt_path, chunks={'time': 30})
 
     rename = {'latitude': 'lat', 'longitude': 'lon'}
     if 'latitude' in ds_inp.dims:
@@ -469,7 +469,6 @@ def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sl
 
     ds = (
         xr.Dataset({'input': da_inp, 'tgt': da_tgt})
-        .load()
         .transpose("time", "lat", "lon")
         .to_array()
     )
