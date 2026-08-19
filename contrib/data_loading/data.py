@@ -449,19 +449,28 @@ def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sl
     ds_inp = xr.open_dataset(input_path)
     ds_tgt = xr.open_dataset(tgt_path)
 
-    for ds in (ds_inp, ds_tgt):
-        if 'latitude' in ds.dims:
-            ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    rename = {'latitude': 'lat', 'longitude': 'lon'}
+    if 'latitude' in ds_inp.dims:
+        ds_inp = ds_inp.rename(rename)
+    if 'latitude' in ds_tgt.dims:
+        ds_tgt = ds_tgt.rename(rename)
 
     if test_cut is not None:
         ds_inp = ds_inp.sel(time=test_cut)
         ds_tgt = ds_tgt.sel(time=test_cut)
 
+    da_inp = ds_inp[variables]
+    da_tgt = ds_tgt[variables]
+
+    # drop any leftover duplicate coordinate dimensions
+    for extra in ('latitude', 'longitude'):
+        if extra in da_inp.dims:
+            da_inp = da_inp.drop_vars(extra, errors='ignore')
+        if extra in da_tgt.dims:
+            da_tgt = da_tgt.drop_vars(extra, errors='ignore')
+
     ds = (
-        xr.Dataset({
-            'input': ds_inp[variables],
-            'tgt':   ds_tgt[variables],
-        })
+        xr.Dataset({'input': da_inp, 'tgt': da_tgt})
         .load()
         .sel(domain)
         .transpose("time", "lat", "lon")
