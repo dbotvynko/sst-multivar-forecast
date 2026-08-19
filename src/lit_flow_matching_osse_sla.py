@@ -182,7 +182,7 @@ class LitFlowMatchingOSSE_SLA(pl.LightningModule):
                                 use_ema=True)
 
         loss = (valid * (x_sample - x_1) ** 2).sum() / valid.sum().clamp(min=1)
-        self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('val_mse', loss, prog_bar=True, on_step=False, on_epoch=True)
 
     # ------------------------------------------------------------------
     # Sampling (Heun + non-uniform schedule)
