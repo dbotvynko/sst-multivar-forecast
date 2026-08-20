@@ -79,7 +79,7 @@ datamodule:
 
 model:
   _target_: contrib.forecast_plus.models_flow_matching.FlowMatchingOSSEForecastPatchGPU_SLA
-  sigma_prior: 1.0
+  sigma_prior: 0.05
   n_inference_steps: 50
   val_n_inference_steps: 50
   ema_decay: 0.999
