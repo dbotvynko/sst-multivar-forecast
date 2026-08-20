@@ -750,3 +750,50 @@ class FlowMatchingOSSEForecastPatchGPU_SLA(LitFlowMatchingOSSE_SLA):
 
         del test_data
         torch.cuda.empty_cache()
+
+
+# ---------------------------------------------------------------------------
+# ocean-FM-forecast style OSSE SLA FM wrapper
+# ---------------------------------------------------------------------------
+
+from src.lit_flow_matching_osse_sla_oceanfm import LitFlowMatchingOSSE_SLA_OceanFM
+
+
+class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_OceanFM):
+    """
+    OSSE SLA FM wrapper — ocean-FM-forecast style.
+
+    Source: pure uniform noise U[0,1].
+    Condition: nan_to_num(masked SLA, 0) — concatenated to x_t channel-wise.
+    ODE: Euler integration (T steps).
+    SDE: available via _sample_sde() for ensemble generation.
+    """
+
+    def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rec_weight_fn = rec_weight_fn
+        self.output_leadtime_start = output_leadtime_start
+
+    def get_dT(self):
+        return self.rec_weight.size()[0]
+
+    def on_test_epoch_end(self):
+        dims = self.rec_weight.size()
+        dT = self.get_dT()
+        output_start = self.output_leadtime_start if self.output_leadtime_start is not None else 0
+
+        test_data = torch.cat(self.test_data).cuda()
+        for i in range(output_start, 7):
+            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
+            if isinstance(rec, list):
+                rec = rec[0]
+
+            ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
+            if self.logger:
+                out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                ds.to_netcdf(out_path)
+                print(out_path)
+
+        del test_data
+        torch.cuda.empty_cache()
