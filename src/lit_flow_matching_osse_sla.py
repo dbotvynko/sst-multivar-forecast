@@ -159,7 +159,11 @@ class LitFlowMatchingOSSE_SLA(pl.LightningModule):
         v_target = x_1 - x_source
         v_pred = self.velocity_net(x_tau, tau, condition)
 
-        loss = (valid * (v_pred - v_target) ** 2).sum() / valid.sum().clamp(min=1)
+        # Train only on missing/future pixels — observed pixels have trivial
+        # near-zero velocity (obs ≈ x_1 in OSSE) and dominate the loss otherwise
+        obs_mask = torch.isfinite(batch.input).float()   # 1 where obs available
+        missing_mask = valid.float() * (1.0 - obs_mask)  # missing but valid in tgt
+        loss = (missing_mask * (v_pred - v_target) ** 2).sum() / missing_mask.sum().clamp(min=1)
         self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
 
