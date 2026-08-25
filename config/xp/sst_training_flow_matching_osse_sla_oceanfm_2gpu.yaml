@@ -121,6 +121,7 @@ entrypoints:
     trainer: ${trainer}
     lit_mod: ${model}
     dm: ${datamodule}
+    ckpt: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SLA_FM_OSSE_OceanFM_2gpu_euler/sst_training_flow_matching_osse_sla_oceanfm_2gpu/checkpoints/val_mse=2.22866-epoch=050.ckpt
 
 defaults:
   - _self_
