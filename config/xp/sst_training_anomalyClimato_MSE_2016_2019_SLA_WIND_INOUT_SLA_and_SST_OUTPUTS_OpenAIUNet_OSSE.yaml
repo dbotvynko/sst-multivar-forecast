@@ -1,24 +1,42 @@
 # @package _global_
 #
-# SST + SLA + Wind(u,v) input -> SLA + SST output, using the OpenAI
-# guided-diffusion UNet (https://github.com/openai/guided-diffusion) as the
-# solver instead of the usual milesial/Pytorch-UNet-derived src.models_UNet
-# solvers (see src/openai_unet.py for the ported architecture, and
+# OSSE (Observing System Simulation Experiment) variant: SST + SLA + Wind(u,v)
+# input -> SLA + SST output, using the OpenAI guided-diffusion UNet
+# (https://github.com/openai/guided-diffusion) as the solver instead of the
+# usual milesial/Pytorch-UNet-derived src.models_UNet solvers (see
+# src/openai_unet.py for the ported architecture, and
 # src/models_UNet.py:OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT for the wrapper
 # used as `model.solver` below).
 #
-# Wind is treated as a *forecast* product: unlike SST/SLA (only ever real
-# observations of the past, and masked to NaN for the future half of the
-# patch's time window - see
-# src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch), wind
-# is assumed available for the whole time window, including future lead
-# times, since real wind forecasts are issued ahead of time.
+# "OSSE data only" here means every variable's input is a pseudo-observation
+# derived from the same GLORYS12 reanalysis "truth" used as the target, not
+# real independent satellite/analysis products:
+#   - SST: input is the GLORYS12 reanalysis SST anomaly (paths.glorys12_data,
+#     also the target) subsampled with the along-track-style pickle masks at
+#     paths.masks_path (masking: True below activates this - see mask_input
+#     in contrib/data_loading/data.py).
+#   - SLA: input/target come from a pre-built GLORYS12-derived file whose
+#     `obs` field is already an along-track pseudo-observation of the same
+#     reanalysis `tgt` field - masked by construction, independent of the
+#     `masking` flag (see open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
+#   - Wind: input is a *reanalysis* wind product (e.g. ERA5 u10/v10),
+#     intentionally left completely unmasked - neither the along-track
+#     `masking` above, nor the future-half NaN masking that SST/SLA get in
+#     src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch -
+#     since wind (forecast or reanalysis) is assumed known for the whole
+#     patch time window, including "future" lead times.
 #
 # TODO before running for real:
-#   - paths.wind_data below is a placeholder - point it at the team's actual
-#     wind forecast product, and check wind_u_variable/wind_v_variable match
-#     its variable names (see contrib/data_loading/data.py:
+#   - paths.wind_data below is still a placeholder - point it at the team's
+#     actual reanalysis wind product (e.g. ERA5), and check wind_u_variable/
+#     wind_v_variable match its variable names (see contrib/data_loading/data.py:
 #     open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
+#     paths.masks_path/paths.glorys12_data/paths.sla_input_data/paths.sla_target_data
+#     below are confirmed real paths.
+#   - sla_input_variable/sla_target_variable below default to 'obs'/'tgt',
+#     matching the older single-file version of this SLA data - double check
+#     they match the actual variable names in the two split files if loading
+#     fails.
 #   - the OpenAI UNet's encoder/decoder skip connections require spatial
 #     dims divisible by 2 ** (len(model.solver.channel_mult) - 1); the
 #     720x1440 patch below is divisible by 8, matching channel_mult's 3
@@ -34,8 +52,10 @@ paths:
     masks_path: /Odyssey/public/global_obs_odyssea_multisensor_no_flag_dt_v2.pickle
     glorys12_data: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
     full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
-    # TODO: placeholder - replace with the team's actual wind forecast product
-    wind_data: /Odyssey/public/wind/TODO_wind_forecast_product.nc
+    sla_input_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
+    sla_target_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
+    # TODO: placeholder - replace with the team's actual reanalysis wind product (e.g. ERA5)
+    wind_data: /Odyssey/public/wind/TODO_wind_reanalysis_product.nc
 
 var_name: "sst_anomaly"
 year_ose: 2023
@@ -92,11 +112,15 @@ datamodule:
     path: ${paths.glorys12_data}
     masks_path: ${paths.masks_path}
     full_l4_path: ${paths.full_l4_path}
+    sla_input_path: ${paths.sla_input_data}
+    sla_target_path: ${paths.sla_target_data}
+    sla_input_variable: "obs"
+    sla_target_variable: "tgt"
     wind_path: ${paths.wind_data}
     wind_u_variable: "u10"
     wind_v_variable: "v10"
     domain: ${domain.train}
-    masking: False
+    masking: True  # OSSE: SST input is masked with paths.masks_path to make pseudo-observations from the reanalysis truth; SLA is masked by construction (see header comment); wind is never masked
     time_domains: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-30']}
   domains:
     train:

@@ -1108,13 +1108,25 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
     a CMEMS near-real-time wind analysis+forecast product), and adjust
     `wind_u_variable`/`wind_v_variable` to match its variable names.
 """
-def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, masks_path, full_l4_path, domain, time_domains, wind_path=None, wind_u_variable="u10", wind_v_variable="v10", variables="sea_surface_temperature", masking=True, test_cut=None): # zos before
+def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
+        path, masks_path, full_l4_path, domain, time_domains,
+        sla_input_path='/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc',
+        sla_target_path='/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc',
+        sla_input_variable="obs", sla_target_variable="tgt",
+        wind_path=None, wind_u_variable="u10", wind_v_variable="v10",
+        variables="sea_surface_temperature", masking=True, test_cut=None): # zos before
     """
         Function to load glorys data
         domain: lat and long extremities to cut data
         variables: variable to load
         masking: whether to mask the input data using the masks in masks_path
         test_cut: if not None, {'time': slice(time1, time2)}, speeding up the loading by pre-cutting the loaded data
+
+        sla_input_path/sla_target_path: separate along-track-gridded pseudo-obs
+        (input) and dense reanalysis truth (target) SLA files. sla_input_variable/
+        sla_target_variable default to 'obs'/'tgt', matching the variable names
+        used in the older single-file version of this data (glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc)
+        this was split from - double check they match if loading fails.
     """
     print('ENTERED HERE ! ')
     ds =  (
@@ -1127,22 +1139,26 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, ma
         ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
     print('Here')
 
-    sla_input = xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc')
+    sla_input = xr.open_dataset(sla_input_path)
+    sla_target = xr.open_dataset(sla_target_path)
     print(sla_input)
+    print(sla_target)
 
-    # TODO: placeholder path - replace with the team's actual wind forecast product
-    wind_path = wind_path or '/Odyssey/public/wind/TODO_wind_forecast_product.nc'
+    # TODO: placeholder path - replace with the team's actual reanalysis wind product (e.g. ERA5)
+    wind_path = wind_path or '/Odyssey/public/wind/TODO_wind_reanalysis_product.nc'
     wind_input = xr.open_dataset(wind_path)
     if 'latitude' in list(wind_input.dims):
         wind_input = wind_input.rename({'latitude':'lat', 'longitude':'lon'})
     print(wind_input)
 
     sla_input = sla_input.sel(time = ds.time.values)
+    sla_target = sla_target.sel(time = ds.time.values)
     wind_input = wind_input.sel(time = ds.time.values)
 
     if test_cut is not None:
         ds = ds.sel(time=test_cut)
         sla_input = sla_input.sel(time = test_cut)
+        sla_target = sla_target.sel(time = test_cut)
         wind_input = wind_input.sel(time = test_cut)
 
     ds = (
@@ -1150,11 +1166,11 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, ma
         .load()
         .assign(
             input = lambda ds: ds["sst_anomaly"],
-            input_sla = lambda ds: sla_input["obs"],
+            input_sla = lambda ds: sla_input[sla_input_variable],
             input_wind_u = lambda ds: wind_input[wind_u_variable],
             input_wind_v = lambda ds: wind_input[wind_v_variable],
             tgt= lambda ds: ds["sst_anomaly"],
-            tgt_sla= lambda ds: sla_input['tgt']
+            tgt_sla= lambda ds: sla_target[sla_target_variable]
         )
         )
     ds['time'] = ds['time'].astype(str)
