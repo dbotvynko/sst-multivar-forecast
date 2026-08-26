@@ -1,0 +1,162 @@
+# @package _global_
+#
+# SST + SLA + Wind(u,v) input -> SLA + SST output, using the OpenAI
+# guided-diffusion UNet (https://github.com/openai/guided-diffusion) as the
+# solver instead of the usual milesial/Pytorch-UNet-derived src.models_UNet
+# solvers (see src/openai_unet.py for the ported architecture, and
+# src/models_UNet.py:OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT for the wrapper
+# used as `model.solver` below).
+#
+# Wind is treated as a *forecast* product: unlike SST/SLA (only ever real
+# observations of the past, and masked to NaN for the future half of the
+# patch's time window - see
+# src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch), wind
+# is assumed available for the whole time window, including future lead
+# times, since real wind forecasts are issued ahead of time.
+#
+# TODO before running for real:
+#   - paths.wind_data below is a placeholder - point it at the team's actual
+#     wind forecast product, and check wind_u_variable/wind_v_variable match
+#     its variable names (see contrib/data_loading/data.py:
+#     open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
+#   - the OpenAI UNet's encoder/decoder skip connections require spatial
+#     dims divisible by 2 ** (len(model.solver.channel_mult) - 1); the
+#     720x1440 patch below is divisible by 8, matching channel_mult's 3
+#     downsamples.
+#   - self-attention is O(N^2) in the number of spatial positions, so it is
+#     only enabled at the deepest (bottleneck) resolution by default
+#     (model.solver.attention_resolutions: []); even there, at this patch
+#     size it's sizeable (90x180 positions at the bottleneck). For a first
+#     smoke test, consider a smaller patch (e.g. via datamodule.xrds_kw) or
+#     a smaller model.solver.model_channels/channel_mult before scaling up.
+
+paths:
+    masks_path: /Odyssey/public/global_obs_odyssea_multisensor_no_flag_dt_v2.pickle
+    glorys12_data: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+    full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+    # TODO: placeholder - replace with the team's actual wind forecast product
+    wind_data: /Odyssey/public/wind/TODO_wind_forecast_product.nc
+
+var_name: "sst_anomaly"
+year_ose: 2023
+
+domain:
+  train:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - -80
+      - 80
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -180
+      - 180
+  test:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - -80
+      - 80
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -180
+      - 180
+
+trainer:
+  _target_: pytorch_lightning.Trainer
+  inference_mode: False
+  gradient_clip_val: 0.5
+  accelerator: gpu
+  devices: 1
+  logger:
+    _target_: pytorch_lightning.loggers.CSVLogger
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2010_2019_AugTrue_MSE+GradLoss_OSSE
+    name: ${hydra:runtime.choices.xp}
+    version: ''
+  max_epochs: 895
+  limit_train_batches: 100
+  callbacks:
+    - _target_: src.versioning_cb.VersioningCallback
+    - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+      monitor: val_mse
+      save_top_k: 10
+      filename: '{val_mse:.5f}-{epoch:03d}'
+
+datamodule:
+  _target_: contrib.moving_patches.movpatch_data_tests.MovingPatchDataModuleFastRecGPU_SST_SLA_WIND_INPUT_SLA_OUTPUT
+  input_da:
+    _target_: contrib.data_loading.data.open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT
+    path: ${paths.glorys12_data}
+    masks_path: ${paths.masks_path}
+    full_l4_path: ${paths.full_l4_path}
+    wind_path: ${paths.wind_data}
+    wind_u_variable: "u10"
+    wind_v_variable: "v10"
+    domain: ${domain.train}
+    masking: False
+    time_domains: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-30']}
+  domains:
+    train:
+      time: {_target_: builtins.slice, _args_: ['2010-01-01', '2018-12-31']}
+    val:
+      time: {_target_: builtins.slice, _args_: ['2019-01-01', '2019-12-30']}
+    test:
+      time: {_target_: builtins.slice,  _args_: ['2019-12-31', '2019-12-30']}
+  xrds_kw:
+    patch_dims: { time: 29, lat: 720, lon: 1440}
+    strides: { time: 1, lat: 672, lon: 1432}
+    domain_limits: ${domain.train}
+  dl_kw: {batch_size: 1, num_workers: 4}
+  aug_kw:
+    aug_factor: 1
+    aug_only: True # no augmentation for real data !!!
+
+model:
+  _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
+  persist_rw: False
+  opt_fn:
+    _target_: src.utils.cosanneal_lr_adam_UNet
+    _partial_: true
+    lr: 1e-3
+    T_max: ${trainer.max_epochs}
+  rec_weight:
+    _target_: src.utils.get_forecast_wei
+    patch_dims: ${datamodule.xrds_kw.patch_dims}
+    crop: {time: 0, lat: 4, lon: 4}
+  rec_weight_fn:
+    _target_: contrib.forecast_weights.forecast_weights_reconstruction_soft_edges
+    _partial_: True
+    soft_edge: 0.25
+  solver:
+    _target_: src.models_UNet.OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
+    n_channels: 29
+    n_classes: 58
+    model_channels: 32
+    num_res_blocks: 1
+    attention_resolutions: []  # bottleneck attention is always on; add e.g. [4] for more
+    channel_mult: [1, 2, 4, 8]
+    num_heads: 4
+    dropout: 0.0
+    use_scale_shift_norm: True
+    use_checkpoint: False  # set True to trade compute for memory (gradient checkpointing)
+    add_input: False
+  pre_metric_fn:
+        _target_: xarray.Dataset.sel
+        _partial_: True
+        time: {_target_: builtins.slice, _args_: ["2019-11-25", "2019-12-31"]}
+        lat: ${domain.test.lat}
+        lon: ${domain.test.lon}
+
+entrypoints:
+  - _target_: pytorch_lightning.seed_everything
+    seed: 333
+  - _target_: src.train.base_training
+    trainer: ${trainer}
+    lit_mod: ${model}
+    dm: ${datamodule}
+
+defaults:
+  - _self_

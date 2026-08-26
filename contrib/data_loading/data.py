@@ -1,7 +1,7 @@
 import xarray as xr
 import numpy as np
 import pickle
-from src.data import TrainingItem, TrainingItemOSE, TrainingItemOSE_coords, TrainingItem_sst, TrainingItem_LatLon, TrainingItem_SLA_INPUT, TrainingItem_SLA_INPUT_SLA_OUTPUT
+from src.data import TrainingItem, TrainingItemOSE, TrainingItemOSE_coords, TrainingItem_sst, TrainingItem_LatLon, TrainingItem_SLA_INPUT, TrainingItem_SLA_INPUT_SLA_OUTPUT, TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT
 import pandas as pd
 from glob import glob
 import datetime as dt
@@ -1089,6 +1089,97 @@ def open_glorys12_data_sst_normalized_climato_SLA_INPUT_SLA_OUTPUT(path, masks_p
 
     return ds
 
+
+
+"""
+    SST OSE + SLA + Wind(u,v) INPUT and SLA + SST OUTPUT OSE
+
+    Wind is a *forecast* product: unlike SST/SLA (only ever real
+    observations of the past), wind is expected to be valid across the
+    whole patch time window, including the "future" half that gets NaN'd
+    out for SST/SLA by src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch.
+    So, unlike input/input_sla, input_wind_u/input_wind_v are *not* passed
+    through the along-track `mask_input` masking below either - that masking
+    simulates the sparse sampling of real satellite observations, which
+    doesn't apply to a gridded wind forecast product.
+
+    TODO: `wind_path` below is a placeholder - point it at your team's
+    actual wind forecast product (e.g. an ECMWF/GFS operational forecast, or
+    a CMEMS near-real-time wind analysis+forecast product), and adjust
+    `wind_u_variable`/`wind_v_variable` to match its variable names.
+"""
+def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(path, masks_path, full_l4_path, domain, time_domains, wind_path=None, wind_u_variable="u10", wind_v_variable="v10", variables="sea_surface_temperature", masking=True, test_cut=None): # zos before
+    """
+        Function to load glorys data
+        domain: lat and long extremities to cut data
+        variables: variable to load
+        masking: whether to mask the input data using the masks in masks_path
+        test_cut: if not None, {'time': slice(time1, time2)}, speeding up the loading by pre-cutting the loaded data
+    """
+    print('ENTERED HERE ! ')
+    ds =  (
+            xr.open_dataset(path).sel(time = time_domains)
+            )
+    ds['time'] = ds.time.dt.date
+    print("ds")
+    print(ds)
+    if 'latitude' in list(ds.dims):
+        ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
+    print('Here')
+
+    sla_input = xr.open_dataset('/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc')
+    print(sla_input)
+
+    # TODO: placeholder path - replace with the team's actual wind forecast product
+    wind_path = wind_path or '/Odyssey/public/wind/TODO_wind_forecast_product.nc'
+    wind_input = xr.open_dataset(wind_path)
+    if 'latitude' in list(wind_input.dims):
+        wind_input = wind_input.rename({'latitude':'lat', 'longitude':'lon'})
+    print(wind_input)
+
+    sla_input = sla_input.sel(time = ds.time.values)
+    wind_input = wind_input.sel(time = ds.time.values)
+
+    if test_cut is not None:
+        ds = ds.sel(time=test_cut)
+        sla_input = sla_input.sel(time = test_cut)
+        wind_input = wind_input.sel(time = test_cut)
+
+    ds = (
+        ds
+        .load()
+        .assign(
+            input = lambda ds: ds["sst_anomaly"],
+            input_sla = lambda ds: sla_input["obs"],
+            input_wind_u = lambda ds: wind_input[wind_u_variable],
+            input_wind_v = lambda ds: wind_input[wind_v_variable],
+            tgt= lambda ds: ds["sst_anomaly"],
+            tgt_sla= lambda ds: sla_input['tgt']
+        )
+        )
+    ds['time'] = ds['time'].astype(str)
+    print("ds final")
+    print(ds)
+
+    if masking:
+        # NB: masking (simulating along-track satellite sampling) is only
+        # applied to input/input_sla - input_wind_u/input_wind_v are left
+        # as-is, since a gridded wind forecast isn't subject to the same
+        # sparse sampling as altimetry/SST observations.
+        with open(masks_path, 'rb') as masks_file:
+            mask_list = pickle.load(masks_file)
+        mask_list = np.array(mask_list)
+        ds= ds.assign(
+            input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
+            )
+    ds = ds.sel(domain)
+    ds = (
+        ds[[*TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._fields]]
+        .transpose("time", "lat", "lon")
+        .to_array()
+        )
+
+    return ds
 
 
 """

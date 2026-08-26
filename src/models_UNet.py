@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from .parts import StandardBlock, ResBlock, Down, Up, OutConv
+from .openai_unet import UNetModel as OpenAIUNetModel
 
 
 class Lit4dVarNet(pl.LightningModule):
@@ -552,6 +553,69 @@ class UNet_SST_and_SLA_INPUT_SLA_OUTPUT(nn.Module):
             out += inp
 
         return out
+
+
+'''
+    OpenAI guided-diffusion UNet (https://github.com/openai/guided-diffusion),
+    ported without diffusion timestep conditioning (see src/openai_unet.py)
+    - SST + SLA + Wind(u,v) Input, SLA & SST Output
+
+    Wind is stacked as extra input channels (u, v components) alongside SST
+    and SLA. Unlike SST/SLA, which src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input
+    masks to NaN for the second (future) half of the patch's time window,
+    wind is a forecast product and is left unmasked for future lead times.
+
+    Note: like the original guided-diffusion UNet, spatial dims must be
+    divisible by 2 ** (len(channel_mult) - 1) for the encoder/decoder skip
+    connections to line up.
+'''
+class OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(nn.Module):
+    def __init__(
+        self,
+        n_channels=1,
+        n_classes=1,
+        model_channels=32,
+        num_res_blocks=1,
+        attention_resolutions=(),
+        channel_mult=(1, 2, 4, 8),
+        num_heads=4,
+        dropout=0.0,
+        use_scale_shift_norm=True,
+        use_checkpoint=False,
+        add_input=False,
+    ):
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.add_input = add_input
+        self.unet = OpenAIUNetModel(
+            image_size=None,
+            in_channels=n_channels * 4,
+            model_channels=model_channels,
+            out_channels=n_classes,
+            num_res_blocks=num_res_blocks,
+            attention_resolutions=attention_resolutions,
+            channel_mult=channel_mult,
+            num_heads=num_heads,
+            dropout=dropout,
+            use_scale_shift_norm=use_scale_shift_norm,
+            use_checkpoint=use_checkpoint,
+        )
+
+    def forward(self, x):
+        if self.add_input:
+            raise NotImplementedError(
+                "add_input is not supported by OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT; "
+                "keep add_input: False in the xp config."
+            )
+        x_input = torch.cat((
+            torch.nan_to_num(x.input),
+            torch.nan_to_num(x.input_sla),
+            torch.nan_to_num(x.input_wind_u),
+            torch.nan_to_num(x.input_wind_v),
+        ), 1)
+        timesteps = torch.zeros(x_input.size(0), device=x_input.device, dtype=torch.long)
+        return self.unet(x_input, timesteps)
 
 
 """
