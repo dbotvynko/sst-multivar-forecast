@@ -1112,7 +1112,7 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         path, masks_path, full_l4_path, domain, time_domains,
         sla_input_path='/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc',
         sla_target_path='/Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc',
-        sla_input_variable="obs", sla_target_variable="tgt",
+        sla_input_variable="sla", sla_target_variable="sla",
         wind_path=None, wind_u_variable="u10", wind_v_variable="v10",
         variables="sea_surface_temperature", masking=True, test_cut=None): # zos before
     """
@@ -1123,10 +1123,9 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         test_cut: if not None, {'time': slice(time1, time2)}, speeding up the loading by pre-cutting the loaded data
 
         sla_input_path/sla_target_path: separate along-track-gridded pseudo-obs
-        (input) and dense reanalysis truth (target) SLA files. sla_input_variable/
-        sla_target_variable default to 'obs'/'tgt', matching the variable names
-        used in the older single-file version of this data (glorys12_2010_2019_daily_sla_4th_gridded_from_alongtrack.nc)
-        this was split from - double check they match if loading fails.
+        (input) and dense reanalysis truth (target) SLA files. Both default
+        to variable name 'sla' (confirmed for sla_input_path; sla_target_path
+        assumed the same by symmetry - double check if loading fails there).
     """
     print('ENTERED HERE ! ')
     ds =  (

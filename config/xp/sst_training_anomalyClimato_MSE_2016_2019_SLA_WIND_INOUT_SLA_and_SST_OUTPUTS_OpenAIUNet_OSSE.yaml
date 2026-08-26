@@ -15,10 +15,12 @@
 #     also the target) subsampled with the along-track-style pickle masks at
 #     paths.masks_path (masking: True below activates this - see mask_input
 #     in contrib/data_loading/data.py).
-#   - SLA: input/target come from a pre-built GLORYS12-derived file whose
-#     `obs` field is already an along-track pseudo-observation of the same
-#     reanalysis `tgt` field - masked by construction, independent of the
-#     `masking` flag (see open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
+#   - SLA: input/target come from two separate pre-built GLORYS12-derived
+#     files (paths.sla_input_data/paths.sla_target_data), both holding a
+#     variable named `sla` - the input one is already an along-track
+#     pseudo-observation of the same reanalysis truth the target one holds
+#     densely - masked by construction, independent of the `masking` flag
+#     (see open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
 #   - Wind: input is ERA5 10m daily-mean reanalysis wind (u10/v10),
 #     intentionally left completely unmasked - neither the along-track
 #     `masking` above, nor the future-half NaN masking that SST/SLA get in
@@ -26,14 +28,14 @@
 #     since wind (forecast or reanalysis) is assumed known for the whole
 #     patch time window, including "future" lead times.
 #
-# TODO before running for real:
+# Confirmed against the real data:
 #   - paths.masks_path/paths.glorys12_data/paths.sla_input_data/paths.sla_target_data/
-#     paths.wind_data below are all confirmed real paths, and wind_u_variable/
-#     wind_v_variable ('u10'/'v10') are confirmed against the actual file.
-#   - sla_input_variable/sla_target_variable below default to 'obs'/'tgt',
-#     matching the older single-file version of this SLA data - double check
-#     they match the actual variable names in the two split files if loading
-#     fails (not yet confirmed).
+#     paths.wind_data are all real paths; wind_u_variable/wind_v_variable
+#     ('u10'/'v10') are confirmed against the actual wind file;
+#     sla_input_variable ('sla') is confirmed against paths.sla_input_data.
+#   - sla_target_variable ('sla') is assumed the same as sla_input_variable
+#     by symmetry, but NOT yet confirmed against paths.sla_target_data
+#     itself - if loading fails there, check its actual variable name.
 #   - the OpenAI UNet's encoder/decoder skip connections require spatial
 #     dims divisible by 2 ** (len(model.solver.channel_mult) - 1); the
 #     720x1440 patch below is divisible by 8, matching channel_mult's 3
@@ -113,8 +115,8 @@ datamodule:
     full_l4_path: ${paths.full_l4_path}
     sla_input_path: ${paths.sla_input_data}
     sla_target_path: ${paths.sla_target_data}
-    sla_input_variable: "obs"
-    sla_target_variable: "tgt"
+    sla_input_variable: "sla"
+    sla_target_variable: "sla"
     wind_path: ${paths.wind_data}
     wind_u_variable: "u10"
     wind_v_variable: "v10"
