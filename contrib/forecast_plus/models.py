@@ -950,6 +950,7 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
         grad_loss_sla = self.weighted_mse(kfilts.sobel(out[:,1]) - kfilts.sobel(batch.tgt_sla), self.rec_weight)
         with torch.no_grad():
             self.log(f"{phase}_grad_mse", grad_loss * self.norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
+            self.log(f"{phase}_grad_mse_sla", grad_loss_sla * self.sla_norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
 
         training_loss = 0.6 * loss + 0.6 * loss_sla + 0.4 * grad_loss + 0.4 * grad_loss_sla
         return training_loss, out
@@ -964,6 +965,8 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
         with torch.no_grad():
             self.log(f"{phase}_mse", loss * self.norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
             self.log(f"{phase}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+            self.log(f"{phase}_mse_sla", loss_sla * self.sla_norm_stats[1]**2, prog_bar=True, on_step=False, on_epoch=True)
+            self.log(f"{phase}_loss_sla", loss_sla, prog_bar=True, on_step=False, on_epoch=True)
 
         return loss, loss_sla, out
 
@@ -979,11 +982,19 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
         if batch_idx == 0:
             self.test_data = []
         out = self(batch=mask_batch)
+        out = out.view(out.size(0), 2, self.solver.n_channels, *out.size()[-2:])
         m, s = self.norm_stats
+        m_sla, s_sla = self.sla_norm_stats
+
+        # SST (channel 0) and SLA (channel 1) are un-normalized with their
+        # own separate stats, then re-flattened back to the 2*n_channels
+        # layout test_quantities=['out'] (a single stacked entry) expects.
+        out = torch.stack([out[:, 0] * s + m, out[:, 1] * s_sla + m_sla], dim=1)
+        out = out.view(out.size(0), 2 * self.solver.n_channels, *out.size()[-2:])
 
         self.test_data.append(torch.stack(
             [
-                out.squeeze(dim=-1).detach().cpu() * s + m,
+                out.squeeze(dim=-1).detach().cpu(),
             ],
             dim=1,
         ))

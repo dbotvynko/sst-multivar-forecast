@@ -557,7 +557,7 @@ class BaseDataModule_SST_SLA_INPUT_SLA_OUTPUT(pl.LightningDataModule):
     meaningful.
 '''
 class BaseDataModule_SST_SLA_WIND_INPUT_SLA_OUTPUT(pl.LightningDataModule):
-    def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None, wind_norm_stats=None, **kwargs):
+    def __init__(self, input_da, domains, xrds_kw, dl_kw, aug_kw=None, norm_stats=None, sla_norm_stats=None, wind_norm_stats=None, **kwargs):
         super().__init__()
         self.input_da = input_da
         self.domains = domains
@@ -565,6 +565,7 @@ class BaseDataModule_SST_SLA_WIND_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         self.dl_kw = dl_kw
         self.aug_kw = aug_kw if aug_kw is not None else {}
         self._norm_stats = norm_stats
+        self._sla_norm_stats = sla_norm_stats
         self._wind_norm_stats = wind_norm_stats
 
         self.train_ds = None
@@ -573,10 +574,21 @@ class BaseDataModule_SST_SLA_WIND_INPUT_SLA_OUTPUT(pl.LightningDataModule):
         self._post_fn = None
 
     def norm_stats(self):
+        # SST-only stats, from the SST target field.
         if self._norm_stats is None:
-            self._norm_stats = self.train_mean_std()
-            print("Norm stats", self._norm_stats)
+            self._norm_stats = self.train_mean_std(variable='tgt')
+            print("SST norm stats", self._norm_stats)
         return self._norm_stats
+
+    def sla_norm_stats(self):
+        # SLA has its own stats, separate from SST: they're different
+        # physical quantities (SST anomaly in degC vs SLA in m) at very
+        # different scales, so sharing SST's (mean, std) for SLA would
+        # badly distort it.
+        if self._sla_norm_stats is None:
+            self._sla_norm_stats = self.train_mean_std(variable='tgt_sla')
+            print("SLA norm stats", self._sla_norm_stats)
+        return self._sla_norm_stats
 
     def wind_norm_stats(self):
         if self._wind_norm_stats is None:
@@ -595,16 +607,18 @@ class BaseDataModule_SST_SLA_WIND_INPUT_SLA_OUTPUT(pl.LightningDataModule):
 
     def post_fn(self):
         m, s = self.norm_stats()
+        m_sla, s_sla = self.sla_norm_stats()
         wm, ws = self.wind_norm_stats()
         def normalize(item): return (item - m) / s
+        def normalize_sla(item): return (item - m_sla) / s_sla
         def normalize_wind(item): return (item - wm) / ws
 
         return ft.partial(ft.reduce, lambda i, f: f(i), [
             TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._make,
             lambda item: item._replace(tgt=normalize(item.tgt)),
-            lambda item: item._replace(tgt_sla=normalize(item.tgt_sla)),
+            lambda item: item._replace(tgt_sla=normalize_sla(item.tgt_sla)),
             lambda item: item._replace(input=normalize(item.input)),
-            lambda item: item._replace(input_sla=normalize(item.input_sla)),
+            lambda item: item._replace(input_sla=normalize_sla(item.input_sla)),
             lambda item: item._replace(input_wind_u=normalize_wind(item.input_wind_u)),
             lambda item: item._replace(input_wind_v=normalize_wind(item.input_wind_v)),
         ])

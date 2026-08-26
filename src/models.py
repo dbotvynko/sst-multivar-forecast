@@ -1414,7 +1414,10 @@ class Lit4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNet_UNet_sst):
     opt_fn: optimisation function
     test_metrics: metrics to run for test
     pre_metric_fn: preprocessing functions to apply to the reconstruction
-    norm_stats: normalisation stats of data
+    norm_stats: normalisation stats of the SST data (SLA has its own, see
+        sla_norm_stats - SST/SLA are different physical quantities at very
+        different scales and are not normalized with shared stats)
+    sla_norm_stats: normalisation stats of the SLA data
     persist_rw: if True: rec_weight saved alongside parameters
     output_only_forecast: if True, for test_dataloader will reconstruct and evaluate only for leadtimes from present and onwards
 
@@ -1425,9 +1428,18 @@ class Lit4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNet_UNet_sst):
     forecasts are available ahead of time.
     """
 
-    def __init__(self, solver, rec_weight, opt_fn, test_metrics=None, pre_metric_fn=None, norm_stats=None, persist_rw=True, output_only_forecast=False):
+    def __init__(self, solver, rec_weight, opt_fn, test_metrics=None, pre_metric_fn=None, norm_stats=None, sla_norm_stats=None, persist_rw=True, output_only_forecast=False):
         super().__init__(solver, rec_weight, opt_fn, test_metrics, pre_metric_fn, norm_stats, persist_rw)
+        self._sla_norm_stats = sla_norm_stats
         self.output_only_forecast=output_only_forecast
+
+    @property
+    def sla_norm_stats(self):
+        if self._sla_norm_stats is not None:
+            return self._sla_norm_stats
+        elif self.trainer.datamodule is not None:
+            return self.trainer.datamodule.sla_norm_stats()
+        return (0., 1.)
 
     @staticmethod
     def mask_batch(batch):
