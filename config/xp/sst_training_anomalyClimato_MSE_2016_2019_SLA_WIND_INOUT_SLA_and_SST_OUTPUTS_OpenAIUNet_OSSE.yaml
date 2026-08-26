@@ -19,7 +19,7 @@
 #     `obs` field is already an along-track pseudo-observation of the same
 #     reanalysis `tgt` field - masked by construction, independent of the
 #     `masking` flag (see open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
-#   - Wind: input is a *reanalysis* wind product (e.g. ERA5 u10/v10),
+#   - Wind: input is ERA5 10m daily-mean reanalysis wind (u10/v10),
 #     intentionally left completely unmasked - neither the along-track
 #     `masking` above, nor the future-half NaN masking that SST/SLA get in
 #     src.models.Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch -
@@ -27,10 +27,11 @@
 #     patch time window, including "future" lead times.
 #
 # TODO before running for real:
-#   - paths.wind_data below is still a placeholder - point it at the team's
-#     actual reanalysis wind product (e.g. ERA5), and check wind_u_variable/
-#     wind_v_variable match its variable names (see contrib/data_loading/data.py:
-#     open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT).
+#   - paths.wind_data now points at the real era5_10m_wind_daily_mean_0.25deg.nc
+#     file; wind_u_variable/wind_v_variable below are set to ERA5's standard
+#     'u10'/'v10' names as a best guess - not yet confirmed against the
+#     actual file. If loading fails on a KeyError for these, open the file
+#     (e.g. `xr.open_dataset(path).data_vars`) and update them.
 #     paths.masks_path/paths.glorys12_data/paths.sla_input_data/paths.sla_target_data
 #     below are confirmed real paths.
 #   - sla_input_variable/sla_target_variable below default to 'obs'/'tgt',
@@ -54,8 +55,9 @@ paths:
     full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
     sla_input_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
     sla_target_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
-    # TODO: placeholder - replace with the team's actual reanalysis wind product (e.g. ERA5)
-    wind_data: /Odyssey/public/wind/TODO_wind_reanalysis_product.nc
+    # ERA5 10m daily-mean wind, 0.25deg - only covers 2017-2019, hence the
+    # narrowed time_domains/domains.train/domains.val below.
+    wind_data: /Odyssey/public/era5/era5_10m_wind_daily_mean_0.25deg.nc
 
 var_name: "sst_anomaly"
 year_ose: 2023
@@ -92,7 +94,7 @@ trainer:
   devices: 1
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
-    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2010_2019_AugTrue_MSE+GradLoss_OSSE
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 895
@@ -121,10 +123,13 @@ datamodule:
     wind_v_variable: "v10"
     domain: ${domain.train}
     masking: True  # OSSE: SST input is masked with paths.masks_path to make pseudo-observations from the reanalysis truth; SLA is masked by construction (see header comment); wind is never masked
-    time_domains: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-30']}
+    # Narrowed to 2017-2019: the ERA5 wind file (paths.wind_data) only covers
+    # this range, and wind_input.sel(time=...) needs every SST/SLA timestamp
+    # to exist in the wind file too, or it errors.
+    time_domains: {_target_: builtins.slice, _args_: ['2017-01-01', '2019-12-30']}
   domains:
     train:
-      time: {_target_: builtins.slice, _args_: ['2010-01-01', '2018-12-31']}
+      time: {_target_: builtins.slice, _args_: ['2017-01-01', '2018-12-31']}
     val:
       time: {_target_: builtins.slice, _args_: ['2019-01-01', '2019-12-30']}
     test:
