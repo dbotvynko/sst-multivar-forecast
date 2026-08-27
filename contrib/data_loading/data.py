@@ -1136,6 +1136,12 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
     print(ds)
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
+    # Crop to `domain` now, before the eager .load() below, rather than
+    # after (as this was originally written) - loading the full native
+    # extent into memory just to immediately discard everything outside
+    # `domain` wastes RAM proportional to how much smaller `domain` is
+    # than the file's native grid.
+    ds = ds.sel(domain)
     print('Here')
 
     def _align_grid(other, ref):
@@ -1187,11 +1193,16 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         .load()
         .assign(
             input = lambda ds: ds["sst_anomaly"],
-            input_sla = lambda ds: sla_input[sla_input_variable],
-            input_wind_u = lambda ds: wind_input[wind_u_variable],
-            input_wind_v = lambda ds: wind_input[wind_v_variable],
+            # Cast explicitly to float32: XrDatasetMovingPatchFastRecGPU casts
+            # everything to float32 per-patch anyway (see XrDatasetMovingPatchFastRec.__getitem__),
+            # so keeping these at their source dtype until then is wasted
+            # memory - notably sla_target's `sla` variable is float64 in the
+            # source file, silently doubling its footprint versus SST/wind.
+            input_sla = lambda ds: sla_input[sla_input_variable].astype('float32'),
+            input_wind_u = lambda ds: wind_input[wind_u_variable].astype('float32'),
+            input_wind_v = lambda ds: wind_input[wind_v_variable].astype('float32'),
             tgt= lambda ds: ds["sst_anomaly"],
-            tgt_sla= lambda ds: sla_target[sla_target_variable]
+            tgt_sla= lambda ds: sla_target[sla_target_variable].astype('float32')
         )
         )
     ds['time'] = ds['time'].astype(str)
@@ -1209,7 +1220,6 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         ds= ds.assign(
             input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
             )
-    ds = ds.sel(domain)
     ds = (
         ds[[*TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._fields]]
         .transpose("time", "lat", "lon")
