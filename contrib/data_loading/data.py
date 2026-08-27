@@ -1138,16 +1138,38 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
     print('Here')
 
-    sla_input = xr.open_dataset(sla_input_path)
-    sla_target = xr.open_dataset(sla_target_path)
+    def _align_grid(other, ref):
+        """
+        Renames latitude/longitude -> lat/lon, normalizes longitude to
+        [-180, 180) and latitude to ascending order, then reindexes onto
+        ref's exact lat/lon coordinates (nearest neighbor).
+
+        Different source products commonly use different grid conventions
+        even at the "same" 0.25deg resolution - e.g. ERA5's longitude is
+        0-360 rather than -180/180, and the SLA files here are offset by a
+        quarter cell (lat ...-89.88, -89.62... vs the SST grid's
+        ...-89.75, -89.5...) from the SST/GLORYS12 grid. Combining
+        differently-labeled coordinates via plain xarray alignment (as a
+        naive .assign() would) silently NaN-fills or misplaces data instead
+        of erroring, so we explicitly reindex onto the reference (SST) grid
+        first.
+        """
+        if 'latitude' in list(other.dims):
+            other = other.rename({'latitude': 'lat', 'longitude': 'lon'})
+        if float(other.lon.max()) > 180:
+            other = other.assign_coords(lon=(((other.lon + 180) % 360) - 180)).sortby('lon')
+        if float(other.lat[0]) > float(other.lat[-1]):
+            other = other.sortby('lat')
+        return other.reindex(lat=ref.lat, lon=ref.lon, method='nearest')
+
+    sla_input = _align_grid(xr.open_dataset(sla_input_path), ds)
+    sla_target = _align_grid(xr.open_dataset(sla_target_path), ds)
     print(sla_input)
     print(sla_target)
 
     # TODO: placeholder path - replace with the team's actual reanalysis wind product (e.g. ERA5)
     wind_path = wind_path or '/Odyssey/public/wind/TODO_wind_reanalysis_product.nc'
-    wind_input = xr.open_dataset(wind_path)
-    if 'latitude' in list(wind_input.dims):
-        wind_input = wind_input.rename({'latitude':'lat', 'longitude':'lon'})
+    wind_input = _align_grid(xr.open_dataset(wind_path), ds)
     print(wind_input)
 
     sla_input = sla_input.sel(time = ds.time.values)
