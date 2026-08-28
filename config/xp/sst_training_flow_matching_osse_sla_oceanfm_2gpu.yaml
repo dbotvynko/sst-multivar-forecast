@@ -16,7 +16,7 @@ paths:
   glorys12_input: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
   glorys12_target: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
   # required by OSE pipeline (setup_model_config replaces input_da at inference time)
-  glorys12_data: /Odyssey/public/glorys/reanalysis/glorys12_2020_daily_sla_4th_input.nc
+  glorys12_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
   ref_data_l4: ''
   ose_data_paths: /Odyssey/public/glorys/reanalysis/glorys12_2023_0.25deg_SLA.nc
 

@@ -150,6 +150,52 @@ def setup_model_config_L4(
     return config
 
 
+def setup_model_config_OceanFM_SLA(
+        model_config_path,
+        gridded_input_path,
+        rec_paths,
+        min_time,
+        max_time,
+        min_time_offseted,
+        max_time_offseted,
+        overwrite,
+):
+    """Like setup_model_config but uses load_ose_data_sla_oceanfm — no SST fields needed."""
+    config = OmegaConf.load(model_config_path)
+
+    OmegaConf.update(config, key='paths.ose_gridded_input_path', value=gridded_input_path)
+
+    del config['datamodule']['input_da']
+
+    OmegaConf.update(config, key='datamodule.input_da._target_',
+                     value='contrib.data_loading.data.load_ose_data_sla_oceanfm')
+    OmegaConf.update(config, key='datamodule.input_da.path',
+                     value='${paths.ose_gridded_input_path}')
+    OmegaConf.update(config, key='datamodule.input_da.tgt_path',
+                     value='${paths.glorys12_data}')
+    OmegaConf.update(config, key='datamodule.input_da.domain',
+                     value='${domain.train}')
+    OmegaConf.update(config, key='datamodule.input_da.variable',
+                     value='${var_name}')
+    OmegaConf.update(config, key='datamodule.input_da.year',
+                     value='${year_ose}')
+
+    OmegaConf.update(config, key='datamodule.domains.train.time._args_', value=[min_time, min_time_offseted])
+    OmegaConf.update(config, key='datamodule.domains.val.time._args_', value=[min_time, min_time_offseted])
+    OmegaConf.update(config, key='datamodule.domains.test.time._args_', value=[min_time, max_time])
+
+    OmegaConf.update(config, key='model.pre_metric_fn.time._args_', value=[min_time_offseted, max_time_offseted])
+
+    leadtime_start = get_leadtime_start(
+        overwrite,
+        rec_paths,
+        dT=dict(config)['datamodule']['xrds_kw']['patch_dims']['time'],
+    )
+    OmegaConf.update(config, key='model.output_leadtime_start', value=leadtime_start)
+
+    return config
+
+
 def execute_rec_pipeline(
         model_config_path,
         model_ckpt_path,
@@ -168,17 +214,35 @@ def execute_rec_pipeline(
     print('-'*60+'\n'+'-'*60+'\nRECONSTRUCTION PIPELINE START:\n')
 
     print('setting up model config')
+    # Detect OceanFM models (FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM) and use dedicated setup
+    _raw_cfg = OmegaConf.load(model_config_path)
+    _model_target = OmegaConf.select(_raw_cfg, 'model._target_', default='')
+    _is_oceanfm = 'OceanFM' in str(_model_target) or 'FlowMatching' in str(_model_target)
+
     try:
-        config = setup_model_config(
-            model_config_path,
-            gridded_input_path,
-            rec_paths,
-            min_time,
-            max_time,
-            min_time_offseted,
-            max_time_offseted,
-            overwrite,
-        )
+        if _is_oceanfm:
+            print('OceanFM model detected — using OceanFM SLA setup')
+            config = setup_model_config_OceanFM_SLA(
+                model_config_path,
+                gridded_input_path,
+                rec_paths,
+                min_time,
+                max_time,
+                min_time_offseted,
+                max_time_offseted,
+                overwrite,
+            )
+        else:
+            config = setup_model_config(
+                model_config_path,
+                gridded_input_path,
+                rec_paths,
+                min_time,
+                max_time,
+                min_time_offseted,
+                max_time_offseted,
+                overwrite,
+            )
     except AllLeadtimesReconstructed:
         print('all leadtimes already reconstructed\n'+'-'*60)
         return

@@ -484,6 +484,57 @@ def open_glorys12_data_sla_premasked(input_path, tgt_path, domain, variables="sl
     return ds
 
 
+def load_ose_data_sla_oceanfm(path, tgt_path, domain, variable='sla_masked_osse', year=2023):
+    """
+    Load 2023 NRT gridded SLA for OceanFM OSE inference.
+
+    path:     gridded NRT SLA input (sparse observations, NaN elsewhere)
+    tgt_path: reference SLA for metrics (GLORYS12 or DUACS)
+    domain:   spatial domain selection dict
+    variable: SLA variable name in the input file
+    year:     year to select from the input file
+
+    Returns xr.DataArray compatible with MovingPatchDataModuleFastRecGPU.
+    """
+    import pandas as pd
+    print(f"LOADING NRT SLA OSE data for OceanFM (year={year})")
+    rename = {'latitude': 'lat', 'longitude': 'lon'}
+
+    print(f"  loading input: {path}")
+    with xr.open_dataset(path) as ds:
+        if 'latitude' in ds.dims:
+            ds = ds.rename(rename)
+        ds['time'] = pd.to_datetime(ds['time'].values)
+        ds = ds.sel(time=ds['time'].dt.year == year)
+        # find the SLA variable
+        sla_var = variable if variable in ds else [v for v in ds.data_vars if 'sla' in v.lower()][0]
+        da_inp = ds[sla_var].sel(domain).drop_vars(['latitude', 'longitude'], errors='ignore')
+        inp_vals = da_inp.values.astype(np.float32)
+        inp_coords = {d: da_inp.coords[d].values for d in da_inp.dims}
+
+    print(f"  loading target: {tgt_path}")
+    with xr.open_dataset(tgt_path) as ds_tgt:
+        if 'latitude' in ds_tgt.dims:
+            ds_tgt = ds_tgt.rename(rename)
+        tgt_var = [v for v in ds_tgt.data_vars if 'sla' in v.lower()][0]
+        # use a single reference day to broadcast as target mask
+        ref_day = ds_tgt.sel(time='2020-01-20', method='nearest')[tgt_var]
+        ref_vals = ref_day.sel(domain).values.astype(np.float32)
+        # broadcast to full time axis
+        tgt_vals = np.broadcast_to(ref_vals[np.newaxis], inp_vals.shape).copy()
+
+    da_inp = xr.DataArray(inp_vals, dims=list(inp_coords.keys()), coords=inp_coords)
+    da_tgt = xr.DataArray(tgt_vals, dims=list(inp_coords.keys()), coords=inp_coords)
+
+    ds_out = (
+        xr.Dataset({'input': da_inp, 'tgt': da_tgt})
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+    print("done.")
+    return ds_out
+
+
 '''
     Real data , for the L3 loss and AvgPool loss
 '''
