@@ -261,7 +261,7 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
         if batch_idx == 0:
             self.test_data = []
             if self.n_ensemble > 1:
-                self.test_data_std = []
+                self.test_data_members = [[] for _ in range(self.n_ensemble)]
 
         if self.norm_stats is not None:
             m, s = self.norm_stats
@@ -269,16 +269,12 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
             m, s = 0, 1
 
         if self.n_ensemble > 1:
-            members = []
-            for _ in range(self.n_ensemble):
+            if batch_idx == 0:
+                self.test_data_members = [[] for _ in range(self.n_ensemble)]
+            for k in range(self.n_ensemble):
                 x_0 = self._get_source(batch)
                 x_member = self._sample_ode(condition, x_0, use_ema=True)
-                members.append(x_member)
-            members = torch.stack(members, dim=0)          # [N, B, T, H, W]
-            x_mean = members.mean(dim=0)
-            x_std  = members.std(dim=0)
-            self.test_data.append(x_mean.detach().cpu().unsqueeze(1) * s + m)
-            self.test_data_std.append(x_std.detach().cpu().unsqueeze(1) * s)
+                self.test_data_members[k].append(x_member.detach().cpu().unsqueeze(1) * s + m)
         else:
             x_0 = self._get_source(batch)
             x_refined = self._sample_ode(condition, x_0, use_ema=True)

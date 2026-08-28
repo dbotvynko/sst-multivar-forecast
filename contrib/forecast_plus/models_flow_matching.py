@@ -786,29 +786,52 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
         output_start = self.output_leadtime_start if self.output_leadtime_start is not None else 0
         output_end = output_start + self.output_leadtime_end if self.output_leadtime_end is not None else 7
 
-        test_data = torch.cat(self.test_data).cuda()
-        test_data_std = torch.cat(self.test_data_std).cuda() if self.n_ensemble > 1 else None
-
-        for i in range(output_start, output_end):
-            fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
-            rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
-            if isinstance(rec, list):
-                rec = rec[0]
-
-            ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
-
-            if test_data_std is not None:
-                rec_std = self.trainer.test_dataloaders.dataset.reconstruct(test_data_std, fw)
-                if isinstance(rec_std, list):
-                    rec_std = rec_std[0]
+        if self.n_ensemble > 1:
+            # save each member as a separate file, then also save mean + std
+            all_members = []
+            for k in range(self.n_ensemble):
+                test_data_k = torch.cat(self.test_data_members[k]).cuda()
+                all_members.append(test_data_k)
+                for i in range(output_start, output_end):
+                    fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+                    rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_k, fw)
+                    if isinstance(rec, list):
+                        rec = rec[0]
+                    ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
+                    if self.logger:
+                        out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}_member_{k:02d}.nc'
+                        ds.to_netcdf(out_path)
+                        print(out_path)
+            # also save ensemble mean + std
+            stack = torch.stack(all_members, dim=0)   # [N, batch, T, H, W]
+            mean_data = stack.mean(dim=0)
+            std_data  = stack.std(dim=0)
+            del all_members, stack
+            torch.cuda.empty_cache()
+            for i in range(output_start, output_end):
+                fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+                rec_mean = self.trainer.test_dataloaders.dataset.reconstruct(mean_data, fw)
+                rec_std  = self.trainer.test_dataloaders.dataset.reconstruct(std_data,  fw)
+                if isinstance(rec_mean, list): rec_mean = rec_mean[0]
+                if isinstance(rec_std,  list): rec_std  = rec_std[0]
+                ds = rec_mean.assign_coords(v0=['sla']).to_dataset(dim='v0')
                 ds['sla_std'] = rec_std.assign_coords(v0=['sla']).sel(v0='sla')
-
-            if self.logger:
-                out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
-                ds.to_netcdf(out_path)
-                print(out_path)
-
-        del test_data
-        if test_data_std is not None:
-            del test_data_std
+                if self.logger:
+                    out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}_ensemble_mean.nc'
+                    ds.to_netcdf(out_path)
+                    print(out_path)
+            del mean_data, std_data
+        else:
+            test_data = torch.cat(self.test_data).cuda()
+            for i in range(output_start, output_end):
+                fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
+                rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
+                if isinstance(rec, list):
+                    rec = rec[0]
+                ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
+                if self.logger:
+                    out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
+                    ds.to_netcdf(out_path)
+                    print(out_path)
+            del test_data
         torch.cuda.empty_cache()
