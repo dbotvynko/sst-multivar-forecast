@@ -42,13 +42,14 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
 
     def __init__(self, velocity_net, opt_fn, rec_weight,
                  n_steps=50, ema_decay=0.999,
-                 t_power=1,
+                 t_power=1, n_ensemble=1,
                  pre_metric_fn=None, test_metrics=None,
                  norm_stats=None, persist_rw=False):
         super().__init__()
         self.velocity_net = velocity_net
         self.n_steps = n_steps
         self.t_power = t_power   # 1 = uniform, >1 = concentrated near tau=0
+        self.n_ensemble = n_ensemble  # >1 = ensemble: saves mean + std
         self._opt_fn = opt_fn
         self.pre_metric_fn = pre_metric_fn
         self.norm_stats = norm_stats
@@ -144,7 +145,7 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
         # pow-law: tau = u^(1/p) concentrates training near tau=0 (noisy end)
         B = x_1.size(0)
         u = torch.rand(B, device=x_1.device)
-        tau = u ** (1.0 / self.t_power)                     # [B] in [0, 1)
+        tau = u ** self.t_power                             # [B] in [0, 1); t_power>1 concentrates near tau=0
         tau_e = tau[:, None, None, None]
 
         # Linear interpolation: x_t = (1-t)*x_0 + t*x_1
@@ -256,20 +257,32 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         batch = self._mask_future(batch)
         condition = self._get_condition(batch)
-        x_0 = self._get_source(batch)
-
-        x_refined = self._sample_ode(condition, x_0, use_ema=True)
 
         if batch_idx == 0:
             self.test_data = []
+            if self.n_ensemble > 1:
+                self.test_data_std = []
 
         if self.norm_stats is not None:
             m, s = self.norm_stats
         else:
             m, s = 0, 1
 
-        out = x_refined.detach().cpu().unsqueeze(1) * s + m
-        self.test_data.append(out)
+        if self.n_ensemble > 1:
+            members = []
+            for _ in range(self.n_ensemble):
+                x_0 = self._get_source(batch)
+                x_member = self._sample_ode(condition, x_0, use_ema=True)
+                members.append(x_member)
+            members = torch.stack(members, dim=0)          # [N, B, T, H, W]
+            x_mean = members.mean(dim=0)
+            x_std  = members.std(dim=0)
+            self.test_data.append(x_mean.detach().cpu().unsqueeze(1) * s + m)
+            self.test_data_std.append(x_std.detach().cpu().unsqueeze(1) * s)
+        else:
+            x_0 = self._get_source(batch)
+            x_refined = self._sample_ode(condition, x_0, use_ema=True)
+            self.test_data.append(x_refined.detach().cpu().unsqueeze(1) * s + m)
 
     # ------------------------------------------------------------------
     # Optimizer

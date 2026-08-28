@@ -767,6 +767,7 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
     Condition: nan_to_num(masked SLA, 0) — concatenated to x_t channel-wise.
     ODE: Euler integration (T steps).
     SDE: available via _sample_sde() for ensemble generation.
+    Set n_ensemble > 1 to save ensemble mean + std per leadtime.
     """
 
     def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, **kwargs):
@@ -783,6 +784,8 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
         output_start = self.output_leadtime_start if self.output_leadtime_start is not None else 0
 
         test_data = torch.cat(self.test_data).cuda()
+        test_data_std = torch.cat(self.test_data_std).cuda() if self.n_ensemble > 1 else None
+
         for i in range(output_start, 7):
             fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
             rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
@@ -790,10 +793,19 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
                 rec = rec[0]
 
             ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
+
+            if test_data_std is not None:
+                rec_std = self.trainer.test_dataloaders.dataset.reconstruct(test_data_std, fw)
+                if isinstance(rec_std, list):
+                    rec_std = rec_std[0]
+                ds['sla_std'] = rec_std.assign_coords(v0=['sla']).sel(v0='sla')
+
             if self.logger:
                 out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
                 ds.to_netcdf(out_path)
                 print(out_path)
 
         del test_data
+        if test_data_std is not None:
+            del test_data_std
         torch.cuda.empty_cache()
