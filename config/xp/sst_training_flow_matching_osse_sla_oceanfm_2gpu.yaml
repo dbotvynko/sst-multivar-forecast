@@ -82,7 +82,7 @@ datamodule:
   aug_kw:
     aug_factor: 1
     aug_only: True
-  norm_stats: [0.02197263017296791, 0.08749637752771378]  # mean/std of GLORYS12 OSSE SLA tgt — run compute_norm_stats.py to update
+  norm_stats: [-0.0012019322106242665, 0.08595404878595711]  # mean/std computed from GLORYS12 OSSE SLA training data (2010-2019-05-17)
 
 model:
   _target_: contrib.forecast_plus.models_flow_matching.FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM
