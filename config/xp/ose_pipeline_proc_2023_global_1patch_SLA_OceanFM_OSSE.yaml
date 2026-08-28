@@ -64,7 +64,7 @@ metrics_spatial_domains:
 
 options:
   skip:
-    data: False
+    data: True    # 2023 NRT data already downloaded
     rec: False
     metrics: False
 
