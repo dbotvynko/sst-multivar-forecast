@@ -95,7 +95,7 @@ model:
   pre_metric_fn:
     _target_: xarray.Dataset.sel
     _partial_: True
-    time: {_target_: builtins.slice, _args_: ["2019-05-18", "2019-12-31"]}
+    time: {_target_: builtins.slice, _args_: ["2019-11-25", "2019-12-31"]}
     lat: ${domain.test.lat}
     lon: ${domain.test.lon}
 
