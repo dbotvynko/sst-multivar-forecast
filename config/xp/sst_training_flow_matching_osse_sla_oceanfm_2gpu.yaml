@@ -90,6 +90,7 @@ model:
   ema_decay: 0.999
   persist_rw: False
   output_leadtime_start: 0
+  output_leadtime_end: 1   # set to null to save all leadtimes; 1 = first only (faster OSE inference)
   opt_fn:
     _target_: src.utils.cosanneal_lr_adam_flow_matching
     _partial_: true
