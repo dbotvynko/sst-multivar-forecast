@@ -787,31 +787,35 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
         output_end = output_start + self.output_leadtime_end if self.output_leadtime_end is not None else 7
 
         if self.n_ensemble > 1:
-            # save each member as a separate file, then also save mean + std
-            all_members = []
-            for k in range(self.n_ensemble):
-                test_data_k = torch.cat(self.test_data_members[k]).cuda()
-                all_members.append(test_data_k)
+            # concatenate members on CPU (avoid GPU OOM)
+            members_cpu = [torch.cat(self.test_data_members[k]) for k in range(self.n_ensemble)]
+
+            # save individual members — one at a time to GPU
+            for k, data_k_cpu in enumerate(members_cpu):
                 for i in range(output_start, output_end):
                     fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
-                    rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_k, fw)
-                    if isinstance(rec, list):
-                        rec = rec[0]
+                    data_k_gpu = data_k_cpu.cuda()
+                    rec = self.trainer.test_dataloaders.dataset.reconstruct(data_k_gpu, fw)
+                    del data_k_gpu
+                    torch.cuda.empty_cache()
+                    if isinstance(rec, list): rec = rec[0]
                     ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
                     if self.logger:
                         out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}_member_{k:02d}.nc'
                         ds.to_netcdf(out_path)
                         print(out_path)
-            # also save ensemble mean + std
-            stack = torch.stack(all_members, dim=0)   # [N, batch, T, H, W]
-            mean_data = stack.mean(dim=0)
-            std_data  = stack.std(dim=0)
-            del all_members, stack
-            torch.cuda.empty_cache()
+
+            # save ensemble mean + std — compute on CPU, reconstruct on GPU per leadtime
+            stack_cpu = torch.stack(members_cpu, dim=0)   # [N, batch, T, H, W]
+            mean_cpu  = stack_cpu.mean(dim=0)
+            std_cpu   = stack_cpu.std(dim=0)
+            del stack_cpu, members_cpu
             for i in range(output_start, output_end):
                 fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
-                rec_mean = self.trainer.test_dataloaders.dataset.reconstruct(mean_data, fw)
-                rec_std  = self.trainer.test_dataloaders.dataset.reconstruct(std_data,  fw)
+                rec_mean = self.trainer.test_dataloaders.dataset.reconstruct(mean_cpu.cuda(), fw)
+                torch.cuda.empty_cache()
+                rec_std  = self.trainer.test_dataloaders.dataset.reconstruct(std_cpu.cuda(),  fw)
+                torch.cuda.empty_cache()
                 if isinstance(rec_mean, list): rec_mean = rec_mean[0]
                 if isinstance(rec_std,  list): rec_std  = rec_std[0]
                 ds = rec_mean.assign_coords(v0=['sla']).to_dataset(dim='v0')
@@ -820,12 +824,16 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
                     out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}_ensemble_mean.nc'
                     ds.to_netcdf(out_path)
                     print(out_path)
-            del mean_data, std_data
+            del mean_cpu, std_cpu
         else:
-            test_data = torch.cat(self.test_data).cuda()
+            # keep on CPU, move to GPU only for reconstruction
+            test_data_cpu = torch.cat(self.test_data)
             for i in range(output_start, output_end):
                 fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
-                rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
+                test_data_gpu = test_data_cpu.cuda()
+                rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data_gpu, fw)
+                del test_data_gpu
+                torch.cuda.empty_cache()
                 if isinstance(rec, list):
                     rec = rec[0]
                 ds = rec.assign_coords(v0=['sla']).to_dataset(dim='v0')
@@ -833,5 +841,5 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
                     out_path = Path(self.logger.log_dir) / f'test_data_{i + 14}.nc'
                     ds.to_netcdf(out_path)
                     print(out_path)
-            del test_data
+            del test_data_cpu
         torch.cuda.empty_cache()
