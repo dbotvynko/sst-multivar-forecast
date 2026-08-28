@@ -274,11 +274,12 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
             for k in range(self.n_ensemble):
                 x_0 = self._get_source(batch)
                 x_member = self._sample_ode(condition, x_0, use_ema=True)
-                self.test_data_members[k].append(x_member.detach().cpu().unsqueeze(1) * s + m)
+                # store as fp16 to halve CPU RAM usage (~19 GB vs ~38 GB for 337 batches)
+                self.test_data_members[k].append((x_member.detach().cpu().unsqueeze(1) * s + m).half())
         else:
             x_0 = self._get_source(batch)
             x_refined = self._sample_ode(condition, x_0, use_ema=True)
-            self.test_data.append(x_refined.detach().cpu().unsqueeze(1) * s + m)
+            self.test_data.append((x_refined.detach().cpu().unsqueeze(1) * s + m).half())
 
     # ------------------------------------------------------------------
     # Optimizer
