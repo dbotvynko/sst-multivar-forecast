@@ -768,12 +768,14 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
     ODE: Euler integration (T steps).
     SDE: available via _sample_sde() for ensemble generation.
     Set n_ensemble > 1 to save ensemble mean + std per leadtime.
+    Set output_leadtime_end: 1 in config to only save the first leadtime (faster).
     """
 
-    def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, **kwargs):
+    def __init__(self, *args, rec_weight_fn, output_leadtime_start=None, output_leadtime_end=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.rec_weight_fn = rec_weight_fn
         self.output_leadtime_start = output_leadtime_start
+        self.output_leadtime_end = output_leadtime_end  # None = all; 1 = first only
 
     def get_dT(self):
         return self.rec_weight.size()[0]
@@ -782,11 +784,12 @@ class FlowMatchingOSSEForecastPatchGPU_SLA_OceanFM(LitFlowMatchingOSSE_SLA_Ocean
         dims = self.rec_weight.size()
         dT = self.get_dT()
         output_start = self.output_leadtime_start if self.output_leadtime_start is not None else 0
+        output_end = output_start + self.output_leadtime_end if self.output_leadtime_end is not None else 7
 
         test_data = torch.cat(self.test_data).cuda()
         test_data_std = torch.cat(self.test_data_std).cuda() if self.n_ensemble > 1 else None
 
-        for i in range(output_start, 7):
+        for i in range(output_start, output_end):
             fw = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
             rec = self.trainer.test_dataloaders.dataset.reconstruct(test_data, fw)
             if isinstance(rec, list):
