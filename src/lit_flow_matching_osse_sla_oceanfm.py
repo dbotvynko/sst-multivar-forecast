@@ -42,11 +42,13 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
 
     def __init__(self, velocity_net, opt_fn, rec_weight,
                  n_steps=50, ema_decay=0.999,
+                 t_power=1,
                  pre_metric_fn=None, test_metrics=None,
                  norm_stats=None, persist_rw=False):
         super().__init__()
         self.velocity_net = velocity_net
         self.n_steps = n_steps
+        self.t_power = t_power   # 1 = uniform, >1 = concentrated near tau=0
         self._opt_fn = opt_fn
         self.pre_metric_fn = pre_metric_fn
         self.norm_stats = norm_stats
@@ -138,10 +140,11 @@ class LitFlowMatchingOSSE_SLA_OceanFM(pl.LightningModule):
 
         x_1 = torch.nan_to_num(x_1)
 
-        # Uniform timestep t ~ U{0, ..., n_steps-1}
+        # Timestep sampling: uniform (t_power=1) or power-law (t_power>1)
+        # pow-law: tau = u^(1/p) concentrates training near tau=0 (noisy end)
         B = x_1.size(0)
-        t_int = torch.randint(0, self.n_steps, (B,), device=x_1.device)
-        tau = t_int.float() / self.n_steps                  # [B] in [0, 1)
+        u = torch.rand(B, device=x_1.device)
+        tau = u ** (1.0 / self.t_power)                     # [B] in [0, 1)
         tau_e = tau[:, None, None, None]
 
         # Linear interpolation: x_t = (1-t)*x_0 + t*x_1
