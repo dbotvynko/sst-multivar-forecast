@@ -1136,6 +1136,11 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
     print(ds)
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude':'lat', 'longitude':'lon'})
+    # Keep the pre-crop (native) coordinates around: masks_path's pickled
+    # masks were generated at this native grid shape, so cropping them to
+    # `domain` (below, in the masking block) needs to know what the native
+    # grid looked like.
+    native_lat, native_lon = ds.lat, ds.lon
     # Crop to `domain` now, before the eager .load() below, rather than
     # after (as this was originally written) - loading the full native
     # extent into memory just to immediately discard everything outside
@@ -1217,6 +1222,19 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         with open(masks_path, 'rb') as masks_file:
             mask_list = pickle.load(masks_file)
         mask_list = np.array(mask_list)
+        if mask_list.shape[-2:] != (ds.sizes['lat'], ds.sizes['lon']):
+            # mask_list was generated at the native (pre-domain-crop) grid
+            # shape - crop it the same way `domain` cropped `ds` above,
+            # using the native coordinates so this works for any domain
+            # rather than a hardcoded index offset.
+            mask_list = (
+                xr.DataArray(
+                    mask_list, dims=('mask_idx', 'lat', 'lon'),
+                    coords={'lat': native_lat, 'lon': native_lon},
+                )
+                .sel(lat=ds.lat, lon=ds.lon)
+                .values
+            )
         ds= ds.assign(
             input=xr.apply_ufunc(mask_input, ds.input, input_core_dims=[['lat', 'lon']], output_core_dims=[['lat', 'lon']], kwargs={"mask_list": mask_list}, dask="allowed", vectorize=True)
             )
