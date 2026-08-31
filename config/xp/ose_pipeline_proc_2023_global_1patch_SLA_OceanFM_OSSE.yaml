@@ -4,7 +4,7 @@
 # Benchmarked year: 2023 (real satellite tracks, no ground truth).
 # Trains on GLORYS12 OSSE (2010-2019), evaluated on true NRT observations.
 
-xp_name: glorys4_global_1patch_SLA_OceanFM_OSSE_Nadir_eval2023
+xp_name: glorys4_global_1patch_SLA_OceanFM_OSSE_Nadir_eval2023_1member
 data_name: nrt_sla
 
 paths:
