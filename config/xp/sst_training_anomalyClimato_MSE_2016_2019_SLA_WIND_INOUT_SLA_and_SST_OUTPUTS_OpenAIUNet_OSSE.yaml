@@ -189,6 +189,16 @@ entrypoints:
     trainer: ${trainer}
     lit_mod: ${model}
     dm: ${datamodule}
+    # Resume from the best checkpoint so far (lowest val_mse among the
+    # top-10 kept by ModelCheckpoint). This is a true resume (weights,
+    # optimizer state, LR scheduler, epoch counter), not just weight
+    # loading, since src.train.base_training passes this straight to
+    # trainer.fit(..., ckpt_path=ckpt).
+    # NB: resuming from epoch 043 (not the more recent epoch 055) means
+    # epochs 44-55 get retrained rather than picked up where they left off -
+    # if you'd rather continue with no rework, point this at
+    # val_mse=0.27965-epoch=055.ckpt instead.
+    ckpt: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE/sst_training_anomalyClimato_MSE_2016_2019_SLA_WIND_INOUT_SLA_and_SST_OUTPUTS_OpenAIUNet_OSSE/checkpoints/val_mse=0.26731-epoch=043.ckpt
 
 defaults:
   - _self_
