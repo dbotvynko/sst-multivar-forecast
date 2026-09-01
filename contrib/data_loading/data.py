@@ -1197,7 +1197,17 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
         ds
         .load()
         .assign(
-            input = lambda ds: ds["sst_anomaly"],
+            # sst_anomaly in this source file carries a systematic ~-273
+            # offset (median across the full 2010-2019 series is -273.03,
+            # not ~0 as a true SST anomaly should be) - almost certainly a
+            # Kelvin/Celsius conversion artifact upstream, confirmed via a
+            # diagnostic against the real file (see task history). This
+            # matches the +273 shift already applied by the pre-existing
+            # open_glorys12_data_sst_normalized_climato_glorys12OSSE loader
+            # in this same module - without it, norm_stats' mean/std end up
+            # dominated by this offset instead of the real SST anomaly
+            # signal.
+            input = lambda ds: ds["sst_anomaly"] + 273,
             # Cast explicitly to float32: XrDatasetMovingPatchFastRecGPU casts
             # everything to float32 per-patch anyway (see XrDatasetMovingPatchFastRec.__getitem__),
             # so keeping these at their source dtype until then is wasted
@@ -1206,7 +1216,7 @@ def open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT(
             input_sla = lambda ds: sla_input[sla_input_variable].astype('float32'),
             input_wind_u = lambda ds: wind_input[wind_u_variable].astype('float32'),
             input_wind_v = lambda ds: wind_input[wind_v_variable].astype('float32'),
-            tgt= lambda ds: ds["sst_anomaly"],
+            tgt= lambda ds: ds["sst_anomaly"] + 273,
             tgt_sla= lambda ds: sla_target[sla_target_variable].astype('float32')
         )
         )
