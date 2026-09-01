@@ -90,7 +90,7 @@ trainer:
   inference_mode: False
   gradient_clip_val: 0.5
   accelerator: gpu
-  devices: 1
+  devices: 2
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
     save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE_fixed_sst_norm
