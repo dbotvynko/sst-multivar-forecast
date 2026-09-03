@@ -184,6 +184,12 @@ def setup_model_config_SLA_WIND(
     OmegaConf.update(config, key='datamodule.input_da.sla_path', value='${paths.ose_sla_path}')
     OmegaConf.update(config, key='datamodule.input_da.wind_path', value='${paths.ose_wind_path}')
     OmegaConf.update(config, key='datamodule.input_da.sst_variable', value='${var_name}')
+    # The real gridded SLA product (/Odyssey/public/altimetry_traces/nrt_sla/2023/gridded_input.nc,
+    # same file the existing SLA-input-only OSE pipeline uses via
+    # load_ose_data_with_tgt_mask_SLA) holds its variable as
+    # `sla_unfiltered`, not `sla` (unlike the OSSE training loader's
+    # GLORYS12-derived SLA files).
+    OmegaConf.update(config, key='datamodule.input_da.sla_variable', value='sla_unfiltered')
     OmegaConf.update(config, key='datamodule.input_da.year', value='${year_ose}')
 
     OmegaConf.update(config, key='datamodule.domains.train.time._args_', value=[min_time, min_time_offseted])

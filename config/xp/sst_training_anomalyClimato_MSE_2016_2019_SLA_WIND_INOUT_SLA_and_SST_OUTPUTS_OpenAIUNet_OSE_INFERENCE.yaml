@@ -1,0 +1,175 @@
+# @package _global_
+#
+# Real-data (OSE) inference template for the SST+SLA+Wind OpenAI UNet OSSE
+# model (see sst_training_anomalyClimato_MSE_2016_2019_SLA_WIND_INOUT_SLA_and_SST_OUTPUTS_OpenAIUNet_OSSE.yaml
+# for the training run this mirrors). Not meant to be run standalone via
+# `python main.py xp=...` - it is loaded by
+# contrib.ose_pipeline.ose_rec_pipeline.setup_model_config_SLA_WIND (see
+# the ose_pipeline_proc_2023_global_1patch_SST_SLA_WIND_UNet_OpenAI.yaml
+# xp that references it as paths.model_config_path), which deletes and
+# replaces datamodule.input_da with real SST/SLA/Wind file paths and
+# overrides datamodule.domains.{train,val,test}.time and
+# model.pre_metric_fn.time before calling
+# contrib.ose_pipeline.rec_utils.reconstruct_from_config, which runs
+# trainer.test(...) only (no trainer.fit) - so trainer:/entrypoints.ckpt
+# below are unused in that path (kept only for parity with the training
+# config / in case this is ever run standalone for a real-data fine-tune).
+#
+# norm_stats/sla_norm_stats/wind_norm_stats below are hardcoded to the
+# exact values computed by the fixed_sst_norm training run (recovered via
+# recover_norm_stats.py, since the original training log was lost) -
+# fixed rather than recomputed on real 2023 data, so the real inputs are
+# normalized on the same scale the network was trained on.
+
+paths:
+    masks_path: /Odyssey/public/global_obs_odyssea_multisensor_no_flag_dt_v2.pickle
+    glorys12_data: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+    full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
+    sla_input_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
+    sla_target_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
+    wind_data: /Odyssey/public/era5/2017_2019/era5_10m_wind_daily_mean_0.25deg.nc
+
+var_name: "sst_anomaly"
+year_ose: 2023
+
+domain:
+  train:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - -80
+      - 80
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -180
+      - 180
+  test:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - -80
+      - 80
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -180
+      - 180
+
+trainer:
+  _target_: pytorch_lightning.Trainer
+  inference_mode: False
+  gradient_clip_val: 0.5
+  accelerator: gpu
+  devices: 1
+  logger:
+    _target_: pytorch_lightning.loggers.CSVLogger
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE_fixed_sst_norm
+    name: ${hydra:runtime.choices.xp}
+    version: ''
+  max_epochs: 895
+  limit_train_batches: 100
+  callbacks:
+    - _target_: src.versioning_cb.VersioningCallback
+    - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+      monitor: val_mse
+      save_top_k: 10
+      filename: '{val_mse:.5f}-{epoch:03d}'
+
+datamodule:
+  _target_: contrib.moving_patches.movpatch_data_tests.MovingPatchDataModuleFastRecGPU_SST_SLA_WIND_INPUT_SLA_OUTPUT
+  # input_da below is a placeholder: setup_model_config_SLA_WIND (in
+  # contrib/ose_pipeline/ose_rec_pipeline.py) deletes this whole key and
+  # replaces it with contrib.data_loading.data.load_ose_data_SLA_WIND_joint_output
+  # pointed at the real SST/SLA/Wind paths from the calling
+  # ose_pipeline_proc xp. Left here only so this file stays structurally
+  # close to the training config / loadable standalone.
+  input_da:
+    _target_: contrib.data_loading.data.open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT
+    path: ${paths.glorys12_data}
+    masks_path: ${paths.masks_path}
+    full_l4_path: ${paths.full_l4_path}
+    sla_input_path: ${paths.sla_input_data}
+    sla_target_path: ${paths.sla_target_data}
+    sla_input_variable: "sla"
+    sla_target_variable: "sla"
+    wind_path: ${paths.wind_data}
+    wind_u_variable: "u10"
+    wind_v_variable: "v10"
+    domain: ${domain.train}
+    masking: True
+    time_domains: {_target_: builtins.slice, _args_: ['2017-01-01', '2019-12-30']}
+  domains:
+    # Overridden by setup_model_config_SLA_WIND at runtime (train/val to
+    # [min_time, min_time_offseted], test to [min_time, max_time]) - values
+    # here are only used if this file is ever run standalone.
+    train:
+      time: {_target_: builtins.slice, _args_: ['2023-01-01', '2023-01-01']}
+    val:
+      time: {_target_: builtins.slice, _args_: ['2023-01-01', '2023-01-01']}
+    test:
+      time: {_target_: builtins.slice, _args_: ['2023-01-01', '2023-12-31']}
+  xrds_kw:
+    patch_dims: { time: 29, lat: 720, lon: 1440}
+    strides: { time: 1, lat: 672, lon: 1432}
+    domain_limits: ${domain.train}
+  dl_kw: {batch_size: 1, num_workers: 0}
+  aug_kw:
+    aug_factor: 1
+    aug_only: True # no augmentation for real data !!!
+  # Fixed to the exact (mean, std) computed by the fixed_sst_norm training
+  # run (see recover_norm_stats.py) - NOT recomputed from the real 2023
+  # data, so real inputs are normalized on the same scale the network
+  # learned on.
+  norm_stats: [0.1298743486404419, 0.5509520173072815]
+  sla_norm_stats: [0.009134083986282349, 0.06207654997706413]
+  wind_norm_stats: [0.10629624128341675, 1.9085419178009033]
+
+model:
+  _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
+  persist_rw: False
+  opt_fn:
+    _target_: src.utils.cosanneal_lr_adam_UNet
+    _partial_: true
+    lr: 1e-3
+    T_max: ${trainer.max_epochs}
+  rec_weight:
+    _target_: src.utils.get_forecast_wei
+    patch_dims: ${datamodule.xrds_kw.patch_dims}
+    crop: {time: 0, lat: 4, lon: 4}
+  rec_weight_fn:
+    _target_: contrib.forecast_weights.forecast_weights_reconstruction_soft_edges
+    _partial_: True
+    soft_edge: 0.25
+  solver:
+    _target_: src.models_UNet.OpenAIUNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
+    n_channels: 29
+    n_classes: 58
+    model_channels: 32
+    num_res_blocks: 1
+    attention_resolutions: []
+    channel_mult: [1, 2, 4, 8]
+    num_heads: 4
+    dropout: 0.0
+    use_scale_shift_norm: True
+    use_checkpoint: False
+    add_input: False
+  pre_metric_fn:
+        _target_: xarray.Dataset.sel
+        _partial_: True
+        time: {_target_: builtins.slice, _args_: ["2023-01-01", "2023-12-31"]}
+        lat: ${domain.test.lat}
+        lon: ${domain.test.lon}
+
+entrypoints:
+  - _target_: pytorch_lightning.seed_everything
+    seed: 333
+  - _target_: src.train.base_training
+    trainer: ${trainer}
+    lit_mod: ${model}
+    dm: ${datamodule}
+    ckpt: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE_fixed_sst_norm/sst_training_anomalyClimato_MSE_2016_2019_SLA_WIND_INOUT_SLA_and_SST_OUTPUTS_OpenAIUNet_OSSE/checkpoints/val_mse=0.07783-epoch=159.ckpt
+
+defaults:
+  - _self_

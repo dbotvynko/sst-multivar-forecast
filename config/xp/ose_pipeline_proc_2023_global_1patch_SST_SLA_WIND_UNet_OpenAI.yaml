@@ -1,0 +1,137 @@
+# @package _global_
+#
+# Real-data (OSE) forecast generation for the SST+SLA+Wind OpenAI UNet
+# model, 2023. Routes through contrib.ose_pipeline.ose_full_pipeline.execute_full_pipeline_SLA_WIND
+# (the wind-aware sibling of execute_full_pipeline), which in turn calls
+# contrib.ose_pipeline.ose_rec_pipeline.execute_rec_pipeline_SLA_WIND ->
+# setup_model_config_SLA_WIND -> contrib.data_loading.data.load_ose_data_SLA_WIND_joint_output.
+#
+# Real data used (no synthetic along-track masking - real satellite/product
+# gaps are the masking):
+#   - SST: real ODYSSEA/IFREMER L3 SST anomaly product for 2023.
+#   - SLA: real gridded along-track SLA observations for 2023 (same file
+#     already used by the existing SLA-input-only OSE pipeline).
+#   - Wind: real ERA5 10m daily-mean wind for 2023 (same product/convention
+#     as the 2017-2019 file used at training - u10/v10, 0.25deg - left
+#     completely unmasked, matching training, since wind is treated as a
+#     forecast/reanalysis product available for the whole time window).
+
+xp_name: glorys4_global_1patch_SST_SLA_WIND_OpenAIUNet_OSSE_fixed_sst_norm_2023_NRT
+data_name: nrt_sla_wind_2023
+
+paths:
+  ose_data_path: /Odyssey/public/ODYSSEA_IFREMER_SST/CLIMATO/SST-L3-NRT-2023_NRT_ANOMALY_CLIMATO_f32_0.25deg_FLAG_5_REAL.nc
+  sla_path: /Odyssey/public/altimetry_traces/nrt_sla/2023/gridded_input.nc
+  wind_path: /Odyssey/public/era5/2023/era5_10m_wind_daily_mean_0.25deg_2023.nc
+  rec_path:  /Odyssey/public/glorys/rec/
+  metrics_path:  /Odyssey/public/glorys/metrics/
+
+  model_config_path: config/xp/sst_training_anomalyClimato_MSE_2016_2019_SLA_WIND_INOUT_SLA_and_SST_OUTPUTS_OpenAIUNet_OSE_INFERENCE.yaml
+  model_ckpt_path: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE_fixed_sst_norm/sst_training_anomalyClimato_MSE_2016_2019_SLA_WIND_INOUT_SLA_and_SST_OUTPUTS_OpenAIUNet_OSSE/checkpoints/val_mse=0.07783-epoch=159.ckpt
+
+var_name: sst_anomaly
+year_ose: 2023
+
+specs:
+  pixels_per_degree: 4
+
+  min_time: 2023-01-01
+  max_time: 2023-12-31
+  time_day_crop: 0
+
+  min_lon: -180
+  max_lon: 180
+  min_lat: -90
+  max_lat: 90
+
+  copernicus_dataset_id: cmems_obs-sl_glo_phy-ssh_nrt_{}-l3-duacs_PT1S
+
+  input_satellites: ['al', 'c2n', 'h2b', 'j3n', 's3a', 's3b']
+  ref_satellites: ['s6a-hr']
+
+metrics_spatial_domains:
+  GLOBE:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - -80
+      - 90
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -180
+      - 180
+  GULFSTREAM:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - 32
+      - 42
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -65
+      - -55
+  GROENLAND:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - 48
+      - 58
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -35
+      - -25
+  MADERE:
+    lat:
+      _target_: builtins.slice
+      _args_:
+      - 32
+      - 42
+    lon:
+      _target_: builtins.slice
+      _args_:
+      - -23
+      - -13
+
+options:
+  skip:
+    data: True     # SST/SLA/wind are already gridded real products - no altimetry-track download/gridding needed
+    rec: False
+    metrics: True   # no real dense SST+SLA truth for 2023 to score against - skip metrics, just generate the forecast
+
+  overwrite:
+    data: False
+    rec: True
+    metrics: False
+
+# HYDRA , RIEN CHANGER !
+entrypoints:
+  - _target_: contrib.ose_pipeline.ose_full_pipeline.execute_full_pipeline_SLA_WIND
+    pixels_per_degree: ${specs.pixels_per_degree}
+    min_time: ${specs.min_time}
+    max_time: ${specs.max_time}
+    min_lon: ${specs.min_lon}
+    max_lon: ${specs.max_lon}
+    min_lat: ${specs.min_lat}
+    max_lat: ${specs.max_lat}
+    metrics_spatial_domains: ${metrics_spatial_domains}
+    time_day_crop: ${specs.time_day_crop}
+    copernicus_dataset_id: ${specs.copernicus_dataset_id}
+    input_satellites: ${specs.input_satellites}
+    ref_satellites: ${specs.ref_satellites}
+    ose_data_path: ${paths.ose_data_path}
+    sla_path: ${paths.sla_path}
+    wind_path: ${paths.wind_path}
+    rec_path: ${paths.rec_path}
+    metrics_path: ${paths.metrics_path}
+    model_config_path: ${paths.model_config_path}
+    model_ckpt_path: ${paths.model_ckpt_path}
+    xp_name: ${xp_name}
+    data_name: ${data_name}
+    skip: ${options.skip}
+    overwrite: ${options.overwrite}
+
+defaults:
+  - _self_
