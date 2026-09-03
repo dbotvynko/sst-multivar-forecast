@@ -150,6 +150,106 @@ def setup_model_config_L4(
     return config
 
 
+def setup_model_config_SLA_WIND(
+        model_config_path,
+        gridded_input_path,
+        sla_path,
+        wind_path,
+        rec_paths,
+        min_time,
+        max_time,
+        min_time_offseted,
+        max_time_offseted,
+        overwrite,
+):
+    """
+    Real OSE inference config setup for the SST+SLA+Wind input -> SST+SLA
+    joint output model (contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT).
+
+    Mirrors setup_model_config (the SLA-input/SST-output variant), but
+    routes to load_ose_data_SLA_WIND_joint_output instead, which also
+    grids in a real wind product left fully unmasked (see that function's
+    docstring) instead of a single SST+SLA-only real observation loader.
+    """
+    config = OmegaConf.load(model_config_path)
+
+    OmegaConf.update(config, key='paths.ose_gridded_input_path', value=gridded_input_path)
+    OmegaConf.update(config, key='paths.ose_sla_path', value=sla_path)
+    OmegaConf.update(config, key='paths.ose_wind_path', value=wind_path)
+
+    del config['datamodule']['input_da']
+
+    OmegaConf.update(config, key='datamodule.input_da._target_', value='contrib.data_loading.data.load_ose_data_SLA_WIND_joint_output')
+    OmegaConf.update(config, key='datamodule.input_da.sst_path', value='${paths.ose_gridded_input_path}')
+    OmegaConf.update(config, key='datamodule.input_da.sla_path', value='${paths.ose_sla_path}')
+    OmegaConf.update(config, key='datamodule.input_da.wind_path', value='${paths.ose_wind_path}')
+    OmegaConf.update(config, key='datamodule.input_da.sst_variable', value='${var_name}')
+    OmegaConf.update(config, key='datamodule.input_da.year', value='${year_ose}')
+
+    OmegaConf.update(config, key='datamodule.domains.train.time._args_', value=[min_time, min_time_offseted])
+    OmegaConf.update(config, key='datamodule.domains.val.time._args_', value=[min_time, min_time_offseted])
+
+    OmegaConf.update(config, key='datamodule.domains.test.time._args_', value=[min_time, max_time])
+
+    OmegaConf.update(config, key='model.pre_metric_fn.time._args_', value=[min_time_offseted, max_time_offseted])
+
+    # LEADTIME OUTPUTS:
+    leadtime_start = get_leadtime_start(
+        overwrite,
+        rec_paths,
+        dT = dict(config)['datamodule']['xrds_kw']['patch_dims']['time'],
+    )
+    OmegaConf.update(config, key='model.output_leadtime_start', value=leadtime_start)
+
+    return config
+
+
+def execute_rec_pipeline_SLA_WIND(
+        model_config_path,
+        model_ckpt_path,
+        rec_path,
+        rec_paths,
+        xp_name,
+        data_name,
+        gridded_input_path,
+        sla_path,
+        wind_path,
+        min_time,
+        max_time,
+        min_time_offseted,
+        max_time_offseted,
+        overwrite,
+):
+
+    print('-'*60+'\n'+'-'*60+'\nRECONSTRUCTION PIPELINE START:\n')
+
+    print('setting up model config')
+    try:
+        config = setup_model_config_SLA_WIND(
+            model_config_path,
+            gridded_input_path,
+            sla_path,
+            wind_path,
+            rec_paths,
+            min_time,
+            max_time,
+            min_time_offseted,
+            max_time_offseted,
+            overwrite,
+        )
+    except AllLeadtimesReconstructed:
+        print('all leadtimes already reconstructed\n'+'-'*60)
+        return
+
+    print('done\n'+'-'*60)
+
+    print('ose reconstruction starting')
+    reconstruct_from_config(config, rec_path, xp_name, data_name, model_ckpt_path)
+    print('done\n'+'-'*60)
+
+    print('RECONSTRUCTION PIPELINE END:\n'+'-'*60+'\n'+'-'*60)
+
+
 def execute_rec_pipeline(
         model_config_path,
         model_ckpt_path,

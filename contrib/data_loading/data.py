@@ -268,6 +268,103 @@ def load_ose_data_with_tgt_mask_L4(path, tgt_path, variable='zos'):
     )
 
 
+def load_ose_data_SLA_WIND_joint_output(
+        sst_path, sla_path, wind_path,
+        sst_variable='sst_anomaly', sla_variable='sla',
+        wind_u_variable='u10', wind_v_variable='v10',
+        year=None):
+    """
+    Real OSE (observation) loader for the SST+SLA+Wind input -> SST+SLA
+    joint output model - mirrors the OSSE training loader
+    open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT,
+    but reads real satellite/altimetry/reanalysis products instead of
+    GLORYS12 reanalysis truth subsampled to look like observations.
+
+    No synthetic along-track masking is applied here (unlike the OSSE
+    training loader's `masking: True`) - the real gaps already present in
+    sst_path/sla_path (real satellite coverage) are themselves the
+    "masking". The calling config should set datamodule.input_da.masking
+    to False (there is no `masking` kwarg here at all, since there is no
+    pickle-based synthetic mask to apply).
+
+    tgt/tgt_sla are NOT real ground truth: the real future SST/SLA is what
+    we are forecasting and does not exist yet. They are set equal to
+    input/input_sla only so the target passed to the model is a complete
+    (non-all-NaN) array with the same shape/coords as the input, which
+    Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT.step
+    needs (kfilts.sobel(...) on the target) to not break at test time -
+    the resulting test_mse/test_grad_mse metrics are meaningless here and
+    should be ignored; only the reconstructed `out` field is.
+
+    wind is left completely unmasked (see
+    Lit4dVarNetForecast_UNet_sst_sla_wind_Input.mask_batch, which never
+    touches input_wind_u/input_wind_v), matching training - it is treated
+    as a forecast/reanalysis product available for the whole patch time
+    window, including "future" lead times.
+    """
+    ds = xr.open_dataset(sst_path)
+    if 'latitude' in list(ds.dims):
+        ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
+    ds['time'] = pd.to_datetime(ds['time'].values)
+    if year is not None:
+        ds = ds.sel(time=ds['time'].dt.year == year)
+
+    def _align_grid(other, ref):
+        # Same reindex-based approach as the OSSE training loader
+        # (open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT):
+        # different real products commonly use different grid conventions
+        # (0-360 vs -180/180 longitude, descending vs ascending latitude,
+        # quarter-cell offsets), so reindex onto the SST grid explicitly
+        # rather than relying on plain label-based alignment.
+        if 'latitude' in list(other.dims):
+            other = other.rename({'latitude': 'lat', 'longitude': 'lon'})
+        if float(other.lon.max()) > 180:
+            other = other.assign_coords(lon=(((other.lon + 180) % 360) - 180)).sortby('lon')
+        if float(other.lat[0]) > float(other.lat[-1]):
+            other = other.sortby('lat')
+        other = other.reindex(lat=ref.lat, lon=ref.lon, method='nearest')
+        if 'time' not in other.coords:
+            # Some real products (e.g. the ERA5 wind file) carry a bare
+            # `time` dimension with no coordinate values at all - assume
+            # daily cadence starting Jan 1st of `year` (the only case this
+            # is needed for), which is required to be set for this file.
+            if year is None:
+                raise ValueError(
+                    "year must be given to reconstruct a missing time coordinate"
+                )
+            other = other.assign_coords(
+                time=pd.date_range(start=f'{year}-01-01', periods=other.sizes['time'])
+            )
+        else:
+            other['time'] = pd.to_datetime(other['time'].values)
+        # Real products aren't always sampled on exactly the same calendar
+        # days - tolerate up to 1 day of mismatch (nearest neighbor in
+        # time) rather than erroring on every non-exact match, but still
+        # fail loudly (via the resulting NaNs/reindex KeyError upstream)
+        # if a whole day is missing outright.
+        return other.reindex(time=ds.time.values, method='nearest', tolerance=pd.Timedelta('1D'))
+
+    sla = _align_grid(xr.open_dataset(sla_path), ds)
+    wind = _align_grid(xr.open_dataset(wind_path), ds)
+
+    ds = (
+        ds
+        .assign(
+            input=lambda ds: ds[sst_variable],
+            input_sla=lambda ds: sla[sla_variable].astype('float32'),
+            input_wind_u=lambda ds: wind[wind_u_variable].astype('float32'),
+            input_wind_v=lambda ds: wind[wind_v_variable].astype('float32'),
+            tgt=lambda ds: ds[sst_variable],
+            tgt_sla=lambda ds: sla[sla_variable].astype('float32'),
+        )
+    )
+
+    return (
+        ds[[*TrainingItem_SLA_WIND_INPUT_SLA_OUTPUT._fields]]
+        .transpose("time", "lat", "lon")
+        .to_array()
+    )
+
 
 def load_gap_free_data_with_tgt_mask_SSH_SST(path, tgt_path, variable='zos'):
                                 #variable='zos'):
