@@ -916,7 +916,18 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT(Plus4dVarNetForecast_
     def on_test_epoch_end(self):
         # test_data as gpu tensor
         self.clear_gpu_mem()
-        self.test_data = torch.cat(self.test_data).cuda()
+        n_items = len(self.test_data)
+        item_shape = tuple(self.test_data[0].shape)
+        item_gb = self.test_data[0].element_size() * self.test_data[0].nelement() / 1e9
+        print(f"[on_test_epoch_end] {n_items} patches, each {item_shape} "
+              f"({item_gb:.2f} GB) -> concatenated CPU size ~{item_gb * n_items:.2f} GB "
+              f"before .cuda()", flush=True)
+        self.test_data = torch.cat(self.test_data)
+        cat_gb = self.test_data.element_size() * self.test_data.nelement() / 1e9
+        print(f"[on_test_epoch_end] concatenated tensor shape {tuple(self.test_data.shape)} "
+              f"= {cat_gb:.2f} GB, moving to GPU now", flush=True)
+        self.test_data = self.test_data.cuda()
+        print("[on_test_epoch_end] moved to GPU OK", flush=True)
         super().on_test_epoch_end()
 
     def test_step(self, batch, batch_idx):

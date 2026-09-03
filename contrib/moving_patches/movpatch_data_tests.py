@@ -606,6 +606,11 @@ class XrDatasetMovingPatchFastRecGPU(XrDatasetMovingPatch):
         new_shape = items[0].shape[:len(new_dims)]
         full_unpadded_shape = [*new_shape, *self.get_unpadded_dims()]
         #full_padded_shape = [*new_shape, *self.get_padded_dims()]
+        _n = 1
+        for _d in full_unpadded_shape:
+            _n *= _d
+        print(f"[reconstruct_from_items] full_unpadded_shape={full_unpadded_shape} "
+              f"-> rec_tensor+count_tensor ~{2 * _n * 4 / 1e9:.2f} GB on GPU", flush=True)
 
         # create cuda slices
         full_slices = []
