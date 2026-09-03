@@ -935,15 +935,22 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT(Plus4dVarNetForecast_
 
         if batch_idx == 0:
             self.test_data = []
+            self._test_data_gb = 0.0
         out = self(batch=mask_batch)
         m, s = self.norm_stats
 
-        self.test_data.append(torch.stack(
+        item = torch.stack(
             [
                 out.squeeze(dim=-1).detach().cpu() * s + m,
             ],
             dim=1,
-        ))
+        )
+        self.test_data.append(item)
+        item_gb = item.element_size() * item.nelement() / 1e9
+        self._test_data_gb += item_gb
+        if batch_idx == 0 or batch_idx % 10 == 0:
+            print(f"[test_step] batch_idx={batch_idx} item_shape={tuple(item.shape)} "
+                  f"item_gb={item_gb:.3f} cumulative_gb={self._test_data_gb:.2f}", flush=True)
 
 
 '''
