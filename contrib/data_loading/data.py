@@ -323,7 +323,20 @@ def load_ose_data_SLA_WIND_joint_output(
         if float(other.lat[0]) > float(other.lat[-1]):
             other = other.sortby('lat')
         other = other.reindex(lat=ref.lat, lon=ref.lon, method='nearest')
-        other['time'] = pd.to_datetime(other['time'].values)
+        if 'time' not in other.coords:
+            # Some real products (e.g. the ERA5 wind file) carry a bare
+            # `time` dimension with no coordinate values at all - assume
+            # daily cadence starting Jan 1st of `year` (the only case this
+            # is needed for), which is required to be set for this file.
+            if year is None:
+                raise ValueError(
+                    "year must be given to reconstruct a missing time coordinate"
+                )
+            other = other.assign_coords(
+                time=pd.date_range(start=f'{year}-01-01', periods=other.sizes['time'])
+            )
+        else:
+            other['time'] = pd.to_datetime(other['time'].values)
         # Real products aren't always sampled on exactly the same calendar
         # days - tolerate up to 1 day of mismatch (nearest neighbor in
         # time) rather than erroring on every non-exact match, but still
