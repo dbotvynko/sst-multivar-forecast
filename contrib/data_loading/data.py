@@ -302,7 +302,16 @@ def load_ose_data_SLA_WIND_joint_output(
     as a forecast/reanalysis product available for the whole patch time
     window, including "future" lead times.
     """
-    ds = xr.open_dataset(sst_path)
+    # cache=False: xr.open_dataset caches every decoded slice it reads by
+    # default (cache=True), keyed per-variable - with 337 overlapping
+    # 29-day windows (stride=1) sliding over a full year, each day gets
+    # read ~29 times, and by the end of the test loop the cache ends up
+    # holding close to the entire decoded year for every variable (SST,
+    # SLA, wind u/v), on top of the accumulated test_data reconstruction
+    # buffer - this is what was actually driving the post-test-loop OOM,
+    # not the output channel count (which is unaffected by wind - only
+    # `out`, never the input, gets accumulated in test_step).
+    ds = xr.open_dataset(sst_path, cache=False)
     if 'latitude' in list(ds.dims):
         ds = ds.rename({'latitude': 'lat', 'longitude': 'lon'})
     ds['time'] = pd.to_datetime(ds['time'].values)
@@ -344,8 +353,8 @@ def load_ose_data_SLA_WIND_joint_output(
         # if a whole day is missing outright.
         return other.reindex(time=ds.time.values, method='nearest', tolerance=pd.Timedelta('1D'))
 
-    sla = _align_grid(xr.open_dataset(sla_path), ds)
-    wind = _align_grid(xr.open_dataset(wind_path), ds)
+    sla = _align_grid(xr.open_dataset(sla_path, cache=False), ds)
+    wind = _align_grid(xr.open_dataset(wind_path, cache=False), ds)
 
     # No .astype('float32')/.load() here on purpose: ds/sla/wind stay
     # backed by lazy (on-disk) arrays at this point (xarray defers .sel/
