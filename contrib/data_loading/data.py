@@ -347,15 +347,28 @@ def load_ose_data_SLA_WIND_joint_output(
     sla = _align_grid(xr.open_dataset(sla_path), ds)
     wind = _align_grid(xr.open_dataset(wind_path), ds)
 
+    # No .astype('float32')/.load() here on purpose: ds/sla/wind stay
+    # backed by lazy (on-disk) arrays at this point (xarray defers .sel/
+    # .isel/.reindex on a netCDF-backed DataArray without forcing a read),
+    # same lazy-loading approach as contrib.lazyloading.LazyXrDataset in
+    # ocean-FM-forecast. XrDatasetMovingPatchFastRecGPU.__getitem__ (used
+    # by MovingPatchDataModuleFastRecGPU_SST_SLA_WIND_INPUT_SLA_OUTPUT)
+    # already does `self.da.isel(**sl).data.astype(np.float32)` per patch,
+    # so casting here up front would force materializing the whole
+    # reindexed 2023 SLA/wind fields into memory before a single patch is
+    # even read - exactly the slowness this was flagged for. Unlike OSSE
+    # training (open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT's
+    # eager .load()), there's no benefit to eager loading here: OSE
+    # inference only makes a single pass over the data.
     ds = (
         ds
         .assign(
             input=lambda ds: ds[sst_variable],
-            input_sla=lambda ds: sla[sla_variable].astype('float32'),
-            input_wind_u=lambda ds: wind[wind_u_variable].astype('float32'),
-            input_wind_v=lambda ds: wind[wind_v_variable].astype('float32'),
+            input_sla=lambda ds: sla[sla_variable],
+            input_wind_u=lambda ds: wind[wind_u_variable],
+            input_wind_v=lambda ds: wind[wind_v_variable],
             tgt=lambda ds: ds[sst_variable],
-            tgt_sla=lambda ds: sla[sla_variable].astype('float32'),
+            tgt_sla=lambda ds: sla[sla_variable],
         )
     )
 
