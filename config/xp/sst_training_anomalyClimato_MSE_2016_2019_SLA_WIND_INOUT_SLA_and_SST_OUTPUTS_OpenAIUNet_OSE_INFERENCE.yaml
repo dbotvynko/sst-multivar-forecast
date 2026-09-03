@@ -129,6 +129,13 @@ datamodule:
 model:
   _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
   persist_rw: False
+  # Restrict on_test_epoch_end's reconstruction/writing loop to leadtime 0
+  # only (output_leadtime_start is set to 0 by setup_model_config_SLA_WIND
+  # when options.overwrite.rec is True, so range(output_start, output_end)
+  # becomes just range(0, 1) - a single reconstruction/netcdf write
+  # instead of 7). Does not affect the torch.cat(self.test_data).cuda()
+  # accumulation step, which happens once regardless, before this loop.
+  output_leadtime_end: 1
   opt_fn:
     _target_: src.utils.cosanneal_lr_adam_UNet
     _partial_: true

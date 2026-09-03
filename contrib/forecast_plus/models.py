@@ -408,11 +408,19 @@ class Plus4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNetForecast_UNet_sst_
             *args,
             rec_weight_fn,
             output_leadtime_start=None,
+            output_leadtime_end=None,
             **kwargs
         ):
         super().__init__(*args, **kwargs)
         self.rec_weight_fn = rec_weight_fn
         self.output_leadtime_start = output_leadtime_start
+        # Upper bound (exclusive) of the leadtime loop below, defaulting
+        # to 7 (the original hardcoded value) - lets a caller restrict
+        # reconstruction/writing to a subset of leadtimes (e.g. just
+        # leadtime 0) without touching output_leadtime_start's own
+        # semantics (used by ose_rec_pipeline for incremental/resume
+        # behavior).
+        self.output_leadtime_end = output_leadtime_end
 
     def get_dT(self):
         return self.rec_weight.size()[0]
@@ -424,7 +432,8 @@ class Plus4dVarNetForecast_UNet_sst_sla_wind_Input(Lit4dVarNetForecast_UNet_sst_
         output_start = 0 if self.output_only_forecast else -14
         if self.output_leadtime_start is not None:
             output_start = self.output_leadtime_start
-        for i in range(output_start, 7):
+        output_end = self.output_leadtime_end if self.output_leadtime_end is not None else 7
+        for i in range(output_start, output_end):
             forecast_weight = self.rec_weight_fn(i, dT, dims, self.rec_weight.cpu().numpy())
             rec_da = self.trainer.test_dataloaders.dataset.reconstruct(
                 self.test_data, forecast_weight
