@@ -963,7 +963,12 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
 
     @property
     def test_quantities(self):
-        return ['out']
+        # Two separate reconstructed quantities (SST, SLA), matching
+        # test_step below stacking them as two entries along the new
+        # (v0) dim rather than flattening them together - see test_step's
+        # comment for why the previous single-entry ['out'] (with SST/SLA
+        # flattened into one 2*n_channels axis) broke reconstruct_from_items.
+        return ['sst', 'sla']
 
     def clear_gpu_mem(self):
         del self.solver
@@ -1018,17 +1023,18 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
         m_sla, s_sla = self.sla_norm_stats
 
         # SST (channel 0) and SLA (channel 1) are un-normalized with their
-        # own separate stats, then re-flattened back to the 2*n_channels
-        # layout test_quantities=['out'] (a single stacked entry) expects.
-        out = torch.stack([out[:, 0] * s + m, out[:, 1] * s_sla + m_sla], dim=1)
-        out = out.view(out.size(0), 2 * self.solver.n_channels, *out.size()[-2:])
+        # own separate stats and kept as two SEPARATE (batch, n_channels,
+        # lat, lon) quantities stacked along a new dim=1 below - NOT
+        # flattened together into one 2*n_channels axis. reconstruct_from_items
+        # (contrib/moving_patches/movpatch_data_tests.py) treats
+        # item.shape[len(new_dims):] as (time, lat, lon) matching
+        # self.patch_dims - flattening SST+SLA together made that axis
+        # 2*n_channels (58) instead of n_channels (29), which
+        # reconstruct_from_items' patch_dims-based indexing then rejected.
+        sst_out = (out[:, 0] * s + m).detach().cpu()
+        sla_out = (out[:, 1] * s_sla + m_sla).detach().cpu()
 
-        item = torch.stack(
-            [
-                out.squeeze(dim=-1).detach().cpu(),
-            ],
-            dim=1,
-        )
+        item = torch.stack([sst_out, sla_out], dim=1)
         self.test_data.append(item)
         item_gb = item.element_size() * item.nelement() / 1e9
         self._test_data_gb += item_gb
