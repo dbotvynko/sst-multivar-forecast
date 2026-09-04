@@ -997,17 +997,21 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
 
         return loss, loss_sla, out
 
-    def on_test_epoch_end(self):
-        # test_data as gpu tensor
-        self.clear_gpu_mem()
-        self.test_data = torch.cat(self.test_data).cuda()
-        super().on_test_epoch_end()
+    # NB: on_test_epoch_end is NOT overridden here - Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT's
+    # implementation (clear_gpu_mem + torch.cat(self.test_data).cuda() +
+    # super().on_test_epoch_end()) already does the right thing. A
+    # previous copy-paste duplicate of that exact same logic here meant
+    # clear_gpu_mem()/cat().cuda() both ran twice - once here, once again
+    # via super() - which crashed on the second `del self.solver` (already
+    # deleted) once the first (memory) OOM was fixed, and was doubling
+    # peak GPU memory usage in the meantime.
 
     def test_step(self, batch, batch_idx):
         mask_batch = self.mask_batch(batch)
 
         if batch_idx == 0:
             self.test_data = []
+            self._test_data_gb = 0.0
         out = self(batch=mask_batch)
         out = out.view(out.size(0), 2, self.solver.n_channels, *out.size()[-2:])
         m, s = self.norm_stats
@@ -1019,12 +1023,18 @@ class Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT(Plus4dVarN
         out = torch.stack([out[:, 0] * s + m, out[:, 1] * s_sla + m_sla], dim=1)
         out = out.view(out.size(0), 2 * self.solver.n_channels, *out.size()[-2:])
 
-        self.test_data.append(torch.stack(
+        item = torch.stack(
             [
                 out.squeeze(dim=-1).detach().cpu(),
             ],
             dim=1,
-        ))
+        )
+        self.test_data.append(item)
+        item_gb = item.element_size() * item.nelement() / 1e9
+        self._test_data_gb += item_gb
+        if batch_idx == 0 or batch_idx % 25 == 0:
+            print(f"[test_step] batch_idx={batch_idx} item_shape={tuple(item.shape)} "
+                  f"item_gb={item_gb:.3f} cumulative_gb={self._test_data_gb:.2f}", flush=True)
 
 
 '''
