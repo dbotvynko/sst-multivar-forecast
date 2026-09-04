@@ -129,13 +129,16 @@ datamodule:
 model:
   _target_: contrib.forecast_plus.models.Plus4dVarNetForecastPatchGPU_UNet_SST_SLA_WIND_INPUT_SLA_OUTPUT
   persist_rw: False
-  # Restrict on_test_epoch_end's reconstruction/writing loop to leadtime 0
-  # only (output_leadtime_start is set to 0 by setup_model_config_SLA_WIND
-  # when options.overwrite.rec is True, so range(output_start, output_end)
-  # becomes just range(0, 1) - a single reconstruction/netcdf write
-  # instead of 7). Does not affect the torch.cat(self.test_data).cuda()
-  # accumulation step, which happens once regardless, before this loop.
-  output_leadtime_end: 1
+  # Full leadtime range: with output_leadtime_start forced to 0 by
+  # setup_model_config_SLA_WIND (options.overwrite.rec: True), range(0, 7)
+  # below writes leadtimes 0-6 (test_data_14.nc .. test_data_20.nc).
+  # Confirmed cheap/safe on a full-year run: the one expensive step
+  # (accumulating self.test_data, ~81GB) happens once regardless of how
+  # many leadtimes get reconstructed here - each leadtime's own
+  # reconstruct_from_items + to_netcdf took ~6s and ~5.4GB of GPU memory
+  # in testing. Lower this (e.g. to 1, for leadtime 0 only) if you want a
+  # faster/lighter run again.
+  output_leadtime_end: 7
   opt_fn:
     _target_: src.utils.cosanneal_lr_adam_UNet
     _partial_: true
