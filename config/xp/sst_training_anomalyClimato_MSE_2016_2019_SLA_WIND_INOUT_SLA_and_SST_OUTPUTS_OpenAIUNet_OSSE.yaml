@@ -53,10 +53,16 @@ paths:
     full_l4_path: /Odyssey/public/glorys/reanalysis/SST-GLORYS12-2010_2019_ANOMALY_CLIMATO_f32_0.25deg.nc
     sla_input_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_input_gridded_alongtrack.nc
     sla_target_data: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_4th_target_gridded_alongtrack.nc
-    # ERA5 10m daily-mean wind, 0.25deg - only covers 2017-2019, hence the
-    # narrowed time_domains/domains.train/domains.val below. Confirmed
-    # variables: u10, v10 (matching wind_u_variable/wind_v_variable below).
-    wind_data: /Odyssey/public/era5/2017_2019/era5_10m_wind_daily_mean_0.25deg.nc
+    # ERA5 surface wind STRESS (not raw 10m wind velocity) - a more
+    # physically direct driver of ocean surface dynamics (Ekman
+    # transport, upwelling, SSH/SLA response) than u10/v10. Daily mean,
+    # 0.25deg, only covers 2017-2019 for now (matching contrib/data_loading/download_era5_wind_stress.py),
+    # hence the narrowed time_domains/domains.train/domains.val below.
+    # variable names below (metss/mntss) are the CDS short names for
+    # mean_eastward/northward_turbulent_surface_stress - VERIFY against
+    # the actual downloaded file (xr.open_dataset(...).data_vars) before
+    # training, the download script prints this too.
+    wind_data: /Odyssey/public/era5_stress/2017_2019/era5_wind_stress_daily_mean_0.25deg_2017_2019.nc
 
 var_name: "sst_anomaly"
 year_ose: 2023
@@ -93,7 +99,7 @@ trainer:
   devices: 2
   logger:
     _target_: pytorch_lightning.loggers.CSVLogger
-    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_Wind_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE_fixed_sst_norm
+    save_dir: /Odyssey/public/glorys/trainings/forecast_global_GPU_1patch_SST_SLA_WindStress_input_SLA_output_OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 895
@@ -118,8 +124,8 @@ datamodule:
     sla_input_variable: "sla"
     sla_target_variable: "sla"
     wind_path: ${paths.wind_data}
-    wind_u_variable: "u10"
-    wind_v_variable: "v10"
+    wind_u_variable: "metss"  # mean_eastward_turbulent_surface_stress - VERIFY before running (see paths.wind_data comment)
+    wind_v_variable: "mntss"  # mean_northward_turbulent_surface_stress - VERIFY before running
     domain: ${domain.train}
     masking: True  # OSSE: SST input is masked with paths.masks_path to make pseudo-observations from the reanalysis truth; SLA is masked by construction (see header comment); wind is never masked
     # Narrowed to 2017-2019: the ERA5 wind file (paths.wind_data) only covers
@@ -189,16 +195,13 @@ entrypoints:
     trainer: ${trainer}
     lit_mod: ${model}
     dm: ${datamodule}
-    # No ckpt: training from scratch. The previous checkpoints under
-    # .../OpenAIUNet_2017_2019_AugTrue_MSE+GradLoss_OSSE/ were trained with
-    # a corrupted SST norm_stats std (~54.25 instead of the true ~0.55,
-    # from float32 catastrophic cancellation on sst_anomaly values centered
-    # around -273 - see the +273 fix in
-    # contrib/data_loading/data.py:open_glorys12_data_sst_normalized_climato_SLA_WIND_INPUT_SLA_OUTPUT),
-    # so resuming from them would carry over weights trained against a
-    # ~100x-too-small effective SST learning signal. trainer.logger.save_dir
-    # above was also changed to a new _fixed_sst_norm directory so this run's
-    # checkpoints don't mix with the old ones.
+    # No ckpt: training from scratch. Wind input switched from raw 10m
+    # velocity (u10/v10) to surface wind STRESS (metss/mntss, see
+    # paths.wind_data above) - a different physical quantity/scale, so
+    # the previous fixed_sst_norm checkpoints (trained on u10/v10) can't
+    # be resumed from. trainer.logger.save_dir above points at a new
+    # WindStress directory so this run's checkpoints don't mix with the
+    # old (raw-wind) ones.
     ckpt: null
 
 defaults:
